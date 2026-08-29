@@ -67,6 +67,17 @@ cp "$PKG/onbehalf/README.md" "$ROOT_OUT/README.md"
 # The recording. These are the run's evidence; the log is rebuilt from them on
 # the user's machine (`behalf-log import`), because the built tile directory is
 # 23 MB against 452 KB for these two files and `npx` re-downloads every time.
+#
+# They are generated, not committed — testdata/ is gitignored — so a fresh
+# checkout has none, and every CI runner is a fresh checkout. The first dry run
+# of the release workflow failed on exactly this line, on every runner at once.
+# Generate them here rather than depending on a workflow step that has to be
+# remembered: the generator is deterministic, so these are byte-for-byte the
+# files `make fixtures` writes locally.
+if [ ! -f "$ROOT/testdata/fixtures/run_9f2a.jsonl" ] || [ ! -f "$ROOT/testdata/fixtures/run_c71e.jsonl" ]; then
+  echo "fixtures absent; generating (testdata/ is not committed)" >&2
+  (cd "$ROOT" && go run ./cmd/behalf-fixtures)
+fi
 cp "$ROOT/testdata/fixtures/run_9f2a.jsonl" "$ROOT/testdata/fixtures/run_c71e.jsonl" "$ROOT_OUT/demo/"
 
 # Version stamping is a single jq-free substitution so this script needs nothing
