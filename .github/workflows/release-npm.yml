@@ -94,12 +94,12 @@ jobs:
           - platform: linux-arm64
             runner: ubuntu-24.04-arm
             rust-target: aarch64-unknown-linux-gnu
-          - platform: win32-x64
-            runner: windows-latest
-            rust-target: x86_64-pc-windows-msvc
-          - platform: win32-arm64
-            runner: windows-11-arm
-            rust-target: aarch64-pc-windows-msvc
+          # win32-x64 and win32-arm64 are deliberately absent. The log's storage
+          # driver is Tessera's POSIX driver — flock(2), O_DIRECTORY — and does
+          # not compile for Windows, so neither `behalf` nor `behalf-log` can.
+          # `onbehalf demo` is `behalf-log import`, so there is no Windows demo
+          # until there is a Windows-capable driver. The dry run of 29 Aug 2026
+          # found this; the Rust verifier itself cross-compiles fine.
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v7

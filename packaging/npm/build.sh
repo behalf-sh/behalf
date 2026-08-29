@@ -24,7 +24,7 @@ set -euo pipefail
 VERSION="${1:-}"
 if [ -z "$VERSION" ]; then
   echo "usage: $0 <version> [platform...]" >&2
-  echo "  platform is one of: darwin-arm64 darwin-x64 linux-arm64 linux-x64 win32-arm64 win32-x64" >&2
+  echo "  platform is one of: darwin-arm64 darwin-x64 linux-arm64 linux-x64" >&2
   exit 2
 fi
 shift || true
@@ -33,7 +33,10 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 PKG="$ROOT/packaging/npm"
 DIST="$PKG/dist"
 
-ALL_PLATFORMS=(darwin-arm64 darwin-x64 linux-arm64 linux-x64 win32-arm64 win32-x64)
+# win32-* are not here: the Tessera POSIX storage driver does not build for
+# Windows, so neither behalf nor behalf-log does. The triple mappings below are
+# kept so the day a Windows driver exists this list is the only edit.
+ALL_PLATFORMS=(darwin-arm64 darwin-x64 linux-arm64 linux-x64)
 PLATFORMS=("$@")
 if [ ${#PLATFORMS[@]} -eq 0 ]; then PLATFORMS=("${ALL_PLATFORMS[@]}"); fi
 

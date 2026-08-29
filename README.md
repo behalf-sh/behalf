@@ -182,7 +182,7 @@ Built and covered by tests on every commit:
 | Offline verification of the delegation chain — the property that makes this not a log | working for I1, I2, I3, I5 (`verifier/src/aat.rs`); I4 and the identity root are not checked offline, and the verifier says so on every run |
 | Tamper-detection suite in CI — 30 adversarial cases across exports, log storage, payloads and the witness | working (`make tamper-suite`) |
 | Published key log — so an export's keys can be attributed to a real emitter | not built |
-| `npx onbehalf demo` — unpacks two recorded runs, no network, no key, nothing spent | built, not yet published (`packaging/npm`) |
+| `npx onbehalf demo` — unpacks two recorded runs, no network, no key, nothing spent | built, not yet published (`packaging/npm`). macOS and Linux, x64 and arm64. **Not Windows**: the log's storage driver is POSIX-only; WSL works |
 | `behalf-log import` — rebuild a log from export files, every leaf byte-for-byte | working (`cmd/behalf-log`) |
 | Importers for existing trace data | not started |
 
@@ -471,14 +471,19 @@ users `behalf` (2019) and `onbehalf` (2013, dormant).
 The first release adds one package per platform under the claimed `@onbehalf` org —
 `@onbehalf/cli-darwin-arm64` and its siblings — pulled in by `onbehalf` as
 `optionalDependencies` and selected by npm's own `os`/`cpu` fields, so `npx onbehalf demo`
-downloads one platform's binaries and runs no install script.
+downloads one platform's binaries and runs no install script. Four platforms: macOS and
+Linux, each on x64 and arm64. **Windows is not one of them.** The log's storage driver is
+Tessera's POSIX driver — `flock(2)`, `O_DIRECTORY` — and does not compile for Windows, so
+neither `behalf` nor `behalf-log` does, and the demo needs both. The Rust verifier alone
+cross-compiles fine. The `@onbehalf/cli-win32-*` names are reserved and deprecated with that
+sentence; WSL runs everything.
 
 That is built and assembles from `packaging/npm/build.sh`; what is left is the publish
 itself. Two things it turns on are worth knowing:
 
 - **No `postinstall`, and no fat package.** An install-time download from somewhere else is
   the unauditable step this product exists to eliminate, and it is blocked outright in many
-  of the enterprises this demo targets. A package carrying all six platforms would multiply
+  of the enterprises this demo targets. A package carrying every platform would multiply
   the `npx` download by six, and `npx` is the feature.
 - **The download is 452 KB of evidence, not 23 MB of index.** The package ships the two runs
   as export files and rebuilds the log locally with `behalf-log import`. Every receipt keeps
