@@ -1,0 +1,458 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://behalf.sh/receipt/v1.schema.json",
+  "title": "behalf v1 Action Receipt (producer envelope)",
+  "description": "The DSSE-signed receipt payload: everything the capture surface asserts, and the bytes the log leaf hashes. Ingest-assigned fields (seq, inclusion proofs, checkpoint membership, checkpoint_id) are NOT modelled here — they live in the log structure and the index projection, never inside the signed receipt. See the receipt schema v1 documentation for field-by-field rationale.",
+  "type": "object",
+  "unevaluatedProperties": false,
+  "required": [
+    "schema_version",
+    "otel_conventions_version",
+    "receipt_id",
+    "kind",
+    "risk_class",
+    "risk_policy_digest",
+    "captured_at",
+    "emitter",
+    "operation",
+    "attribution",
+    "provenance"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "behalf.sh/receipt/v1",
+      "description": "Read-path projection key; verbatim bytes are never rewritten."
+    },
+    "otel_conventions_version": {
+      "type": "string",
+      "description": "gen_ai.* conventions version in force at capture; lets old records be re-normalised when the still-Development conventions move. Capture-only, unbackfillable."
+    },
+    "receipt_id": {
+      "type": "string",
+      "description": "Client-minted ULID; the idempotency key, minted at capture so a retried send can never occupy two chain positions.",
+      "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "kind": {
+      "type": "string",
+      "description": "Closed vendor enum; customer vocabulary rides kind_ext.",
+      "enum": [
+        "action",
+        "tool_call",
+        "resource_read",
+        "message",
+        "delegation",
+        "delegation_failed",
+        "approval",
+        "denial",
+        "revocation",
+        "erasure_notice",
+        "policy_change",
+        "orphan_intent",
+        "import",
+        "refusal",
+        "loss_marker",
+        "attestation"
+      ]
+    },
+    "kind_ext": {
+      "type": "string",
+      "description": "Verbatim, non-load-bearing customer vocabulary, namespaced."
+    },
+    "risk_class": {
+      "type": "string",
+      "description": "Assigned by the proxy's capture-time tool-policy config, not producer-self-reported."
+    },
+    "risk_policy_digest": {
+      "$ref": "#/$defs/sha256",
+      "description": "Digest of the policy that assigned risk_class, so the assignment is auditable. Capture-only."
+    },
+    "captured_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Capture-surface timestamp, asserted; hardened clock trust is a later milestone."
+    },
+    "emitter": {
+      "type": "object",
+      "description": "The capture surface that produced this evidence, distinct from the actor.",
+      "unevaluatedProperties": false,
+      "required": ["jkt", "surface", "counter"],
+      "properties": {
+        "jkt": {
+          "$ref": "#/$defs/jkt",
+          "description": "Surface's own Ed25519 key thumbprint, generated at install, distinct from any human device key; signs the DSSE envelope."
+        },
+        "surface": {
+          "type": "string",
+          "enum": ["mcp-proxy", "claude-code-hook", "cli"],
+          "description": "The MCP proxy is the canonical v1 surface; Claude Code hooks and the behalf CLI are companion surfaces."
+        },
+        "counter": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Per-emitter monotonic counter stamped before spooling so pre-append loss/reordering is detectable. Capture-only integrity primitive."
+        }
+      }
+    },
+    "actor": {
+      "type": "object",
+      "description": "Who acted, if distinct from emitter. Optional.",
+      "unevaluatedProperties": false,
+      "required": ["jkt"],
+      "properties": {
+        "jkt": {
+          "$ref": "#/$defs/jkt",
+          "description": "Canonical actor identity is the key thumbprint — keys are what the cryptography proves."
+        },
+        "labels": {
+          "type": "object",
+          "description": "clientInfo / hook agent_id / MCP server name — stored verbatim as asserted labels, never used for security decisions.",
+          "additionalProperties": { "type": "string" }
+        },
+        "emitter_to_actor": {
+          "const": "asserted",
+          "description": "The emitter-to-actor assertion is recorded but never enforced."
+        }
+      }
+    },
+    "operation": {
+      "type": "object",
+      "description": "The trust-boundary crossing.",
+      "unevaluatedProperties": false,
+      "required": ["name", "outcome"],
+      "properties": {
+        "name": { "type": "string" },
+        "target": { "type": "string" },
+        "outcome": {
+          "type": "object",
+          "description": "Result or failure; covers failure of the attempted operation.",
+          "unevaluatedProperties": true,
+          "required": ["status"],
+          "properties": {
+            "status": { "type": "string", "enum": ["ok", "error"] },
+            "error": { "type": "string" }
+          }
+        },
+        "idempotency_key": {
+          "type": "string",
+          "description": "The target operation's idempotency key, distinct from receipt_id."
+        }
+      }
+    },
+    "attempt": {
+      "type": "object",
+      "description": "Intent spooled before forwarding, merged into the completion receipt in the common case; flushed as orphan_intent on crash.",
+      "unevaluatedProperties": false,
+      "properties": {
+        "intent_digest": {
+          "$ref": "#/$defs/sha256",
+          "description": "Spooled intent digest; also the anchor for denial/delegation_failed records. Capture-only; the crash-between hole cannot be backfilled."
+        }
+      }
+    },
+    "run_id": {
+      "type": "string",
+      "description": "Reconstruction grouping key by normative precedence: caller-supplied -> hook session/agent id -> root trace_id -> proxy-process session. Required at ingest; the other five correlation keys are not."
+    },
+    "run_id_provenance": {
+      "type": "string",
+      "enum": ["caller", "hook-session", "traceparent", "proxy-session"],
+      "description": "Which precedence rung produced run_id, so grouping is honest about its own provenance. Capture-only."
+    },
+    "correlation": {
+      "type": "object",
+      "description": "The other five of the six correlation keys — all indexed, none required at ingest.",
+      "unevaluatedProperties": false,
+      "properties": {
+        "trace_id": { "type": "string" },
+        "session_id": { "type": "string" },
+        "txn": { "type": "string" },
+        "acti": { "type": "string" },
+        "conversation_id": { "type": "string" }
+      }
+    },
+    "step_key": {
+      "$ref": "#/$defs/sha256",
+      "description": "Hash of (tool name, normalized argument schema, causal ordinal); reserved and populated from record one so run comparison works on day-one data. Records written without it cannot be aligned retroactively. Capture-only."
+    },
+    "authority": {
+      "type": "object",
+      "description": "The delegation chain: the attenuating-agent-token JWS chain embedded whole, whose par_hash linkage is the DAG edge.",
+      "unevaluatedProperties": false,
+      "required": ["chain"],
+      "properties": {
+        "chain": {
+          "type": "array",
+          "description": "Ordered hops, depth 0 = root.",
+          "items": { "$ref": "#/$defs/hop" }
+        }
+      }
+    },
+    "attribution": {
+      "type": "object",
+      "description": "Two orthogonal axes, stored at write, never derived at query time.",
+      "unevaluatedProperties": false,
+      "required": ["verification", "class"],
+      "properties": {
+        "verification": {
+          "type": "string",
+          "enum": ["verified", "asserted", "broken"],
+          "description": "Receipt-level rollup = weakest hop; three states, not two."
+        },
+        "class": {
+          "type": "string",
+          "enum": ["direct", "delegated", "autonomous", "unattributed"],
+          "description": "Derived from token-path evidence at write; a linked approval never reclassifies."
+        }
+      }
+    },
+    "payload": {
+      "type": "array",
+      "description": "Payload slots; customer-held everywhere, behalf holds digests/refs only.",
+      "items": { "$ref": "#/$defs/payload_slot" }
+    },
+    "model_call": {
+      "type": "object",
+      "description": "Reserved context class: a customer-held payload artifact referenced by digest, populated when the in-process SDK surface arrives.",
+      "unevaluatedProperties": false,
+      "properties": {
+        "digest": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "human_in_loop": {
+      "type": "object",
+      "description": "Consent/denial, marked asserted — a click is not cryptography.",
+      "unevaluatedProperties": false,
+      "properties": {
+        "approval_receipt_id": { "type": "string" },
+        "satisfied_by": { "type": "string" },
+        "binding_message_digest": { "$ref": "#/$defs/sha256" },
+        "marked": { "const": "asserted" }
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "description": "Native vs imported; an import carries an asserted floor no later operation can raise.",
+      "unevaluatedProperties": false,
+      "required": ["source"],
+      "properties": {
+        "source": { "type": "string", "enum": ["native", "import"] },
+        "import_floor": {
+          "const": "asserted",
+          "description": "Required on imported records; travels in every rendering and proof."
+        },
+        "importer": { "type": "string" }
+      },
+      "if": { "properties": { "source": { "const": "import" } } },
+      "then": { "required": ["source", "import_floor"] }
+    },
+    "links": {
+      "type": "array",
+      "description": "Typed references carrying the target's log index + leaf hash.",
+      "items": {
+        "type": "object",
+        "unevaluatedProperties": false,
+        "required": ["rel"],
+        "properties": {
+          "rel": {
+            "type": "string",
+            "enum": ["approval", "revokes", "erases", "attests", "supersedes", "anchor"]
+          },
+          "target_log_index": { "type": "integer", "minimum": 0 },
+          "target_leaf_hash": { "$ref": "#/$defs/sha256" },
+          "anchor": {
+            "type": "object",
+            "description": "For denial/delegation_failed with no action to point at: anchor to the token jti/par_hash + intent digest.",
+            "unevaluatedProperties": false,
+            "properties": {
+              "jti": { "type": "string" },
+              "par_hash": { "$ref": "#/$defs/sha256" },
+              "intent_digest": { "$ref": "#/$defs/sha256" }
+            }
+          }
+        }
+      }
+    },
+    "annex_iii_category": {
+      "type": "string",
+      "description": "Reserved forward provision only."
+    },
+    "raw_frame_ref": {
+      "$ref": "#/$defs/sha256",
+      "description": "Digest of the raw source event (hook JSON, MCP message), optionally retained customer-side for re-normalisation when conventions move."
+    }
+  },
+  "allOf": [
+    {
+      "$comment": "Imported records must declare the asserted floor.",
+      "if": { "properties": { "kind": { "const": "import" } }, "required": ["kind"] },
+      "then": { "properties": { "provenance": { "required": ["source", "import_floor"] } } }
+    },
+    {
+      "$comment": "Orphan-intent records carry the spooled intent digest.",
+      "if": { "properties": { "kind": { "const": "orphan_intent" } }, "required": ["kind"] },
+      "then": { "required": ["attempt"], "properties": { "attempt": { "required": ["intent_digest"] } } }
+    }
+  ],
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "description": "Lowercase hex SHA-256.",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "jkt": {
+      "type": "string",
+      "description": "JWK thumbprint (base64url), per RFC 7638.",
+      "pattern": "^[A-Za-z0-9_-]{43}$"
+    },
+    "hop": {
+      "type": "object",
+      "description": "One delegation hop: the attenuating-agent-token draft field set verbatim plus one named behalf extension, the root principal binding.",
+      "unevaluatedProperties": false,
+      "required": [
+        "del_depth",
+        "del_max_depth",
+        "par_hash",
+        "cnf",
+        "authorization_details",
+        "exp",
+        "jti",
+        "credential",
+        "verification"
+      ],
+      "properties": {
+        "del_depth": { "type": "integer", "minimum": 0, "description": "Attenuating-agent-token draft, verbatim." },
+        "del_max_depth": { "type": "integer", "minimum": 0, "description": "Attenuating-agent-token draft, verbatim." },
+        "par_hash": { "$ref": "#/$defs/sha256", "description": "Parent-hash linkage — the DAG edge." },
+        "cnf": {
+          "type": "object",
+          "description": "Hop key confirmation.",
+          "required": ["jwk"],
+          "properties": { "jwk": { "type": "object" } }
+        },
+        "authorization_details": {
+          "type": "array",
+          "description": "RFC 9396 raw per-hop grant, captured verbatim; the attenuation delta is recomputed at read from these raw inputs, never frozen.",
+          "items": { "type": "object" }
+        },
+        "exp": { "type": "integer", "description": "Per-hop expiry, verbatim; half of the revocation-window join." },
+        "jti": {
+          "type": "string",
+          "description": "Per-hop token id, required by the attenuating-agent-token draft (\u00a73.2); a hop without it is denied (\u00a77). Unbackfillable."
+        },
+        "credential": {
+          "type": "object",
+          "description": "Canonical credential reference — namespaced ids, never the token.",
+          "unevaluatedProperties": false,
+          "required": ["issuer", "kind", "id", "exp"],
+          "properties": {
+            "issuer": { "type": "string" },
+            "kind": { "type": "string", "description": "Namespaced credential mechanism, e.g. oauth-jti, id-jag, svid-serial." },
+            "id": { "type": "string", "description": "Namespaced opaque id." },
+            "exp": { "type": "integer", "description": "Verbatim." },
+            "jkt": { "$ref": "#/$defs/jkt" },
+            "auth_time": { "type": "integer", "description": "Where the exchange exposes it, e.g. an identity-assertion authorization grant." },
+            "amr": { "type": "array", "items": { "type": "string" }, "description": "Auth methods where exposed." }
+          }
+        },
+        "root_principal_binding": {
+          "type": "object",
+          "description": "behalf extension at depth 0: OIDC nonce == jkt(device_pubkey).",
+          "unevaluatedProperties": false,
+          "properties": {
+            "nonce": { "type": "string" },
+            "device_jkt": { "$ref": "#/$defs/jkt" },
+            "id_token_ref": { "$ref": "#/$defs/sha256", "description": "Digest of the customer-held ID-token blob." }
+          }
+        },
+        "trigger": {
+          "type": "object",
+          "description": "Autonomous depth-0 root: installing operator's device key carrying a trigger claim, honestly asserted.",
+          "unevaluatedProperties": false,
+          "required": ["kind", "descriptor_digest"],
+          "properties": {
+            "kind": { "type": "string", "enum": ["schedule", "webhook"] },
+            "descriptor_digest": { "$ref": "#/$defs/sha256" }
+          }
+        },
+        "verification": {
+          "type": "object",
+          "description": "Per-hop three-state verification status.",
+          "unevaluatedProperties": false,
+          "required": ["status"],
+          "properties": {
+            "status": { "type": "string", "enum": ["verified", "asserted", "broken"] },
+            "method": { "type": "string" },
+            "evidence_ref": { "type": "string" }
+          }
+        },
+        "carriage_route": {
+          "type": "string",
+          "description": "How the hop arrived (in-band signatures vs out-of-band sh.behalf/chain over MCP); metadata, since verification comes from the signatures."
+        },
+        "attenuation_flag": {
+          "type": "string",
+          "description": "Non-comparable vocabularies yield 'unknown', recorded and flagged, never swallowed.",
+          "enum": ["attenuated", "unchanged", "unknown"]
+        }
+      }
+    },
+    "payload_slot": {
+      "type": "object",
+      "description": "One payload availability slot; a slot full of placeholders is still verifiable evidence.",
+      "unevaluatedProperties": false,
+      "required": ["digest", "custody", "state"],
+      "properties": {
+        "role": { "type": "string", "description": "e.g. input, output, model_call." },
+        "digest": {
+          "$ref": "#/$defs/sha256",
+          "description": "Plain SHA-256 over raw plaintext bytes; commitment and content-addressed-storage address are one value."
+        },
+        "custody": {
+          "type": "string",
+          "enum": ["customer-held", "dropped-with-digest", "vendor-held"],
+          "description": "Frozen enum; a verifier must distinguish never-here / deleted / no-access. vendor-held reserved. Unbackfillable."
+        },
+        "content_type": { "type": "string" },
+        "size": { "type": "integer", "minimum": 0 },
+        "ref": {
+          "type": "string",
+          "description": "Content address; the reference shape is immutable from record one."
+        },
+        "field_digest_manifest": {
+          "type": "object",
+          "description": "Merkle over canonicalized JSON fields, captured at write; keeps verifiable redaction / per-field retention / selective disclosure possible for v1-era records. Non-JSON payloads omit it. Unbackfillable.",
+          "unevaluatedProperties": false,
+          "properties": {
+            "root": { "$ref": "#/$defs/sha256" },
+            "fields": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "unevaluatedProperties": false,
+                "required": ["path", "digest"],
+                "properties": {
+                  "path": { "type": "string", "description": "JSONPath." },
+                  "digest": { "$ref": "#/$defs/sha256" }
+                }
+              }
+            }
+          }
+        },
+        "subjects": {
+          "type": "array",
+          "description": "Reserved, explicitly asserted: future erasure-scope enumeration; per-subject separation cannot be applied retroactively.",
+          "items": { "type": "string" }
+        },
+        "state": {
+          "type": "string",
+          "enum": ["present", "missing", "deleted", "unreadable", "dropped-at-capture"],
+          "description": "Reconstruction placeholder state."
+        },
+        "cause_ref": {
+          "type": "string",
+          "description": "Reference to the policy_change/erasure_notice receipt explaining a non-present state."
+        }
+      }
+    }
+  }
+}

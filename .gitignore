@@ -1,0 +1,13 @@
+# Generated test fixtures and vectors — regenerated in CI, never committed
+# (docs/export-format-v1.md §3).
+/testdata/
+verifier/target/
+# Browser-verifier build outputs (`make wasm`): the wasm module, the
+# wasm-bindgen glue, the assembled pages and the bundled sample export.
+verifier/web/dist/
+*.test
+dist/
+/.claude/
+
+# Assembled npm packages (packaging/npm/build.sh output).
+packaging/npm/dist/

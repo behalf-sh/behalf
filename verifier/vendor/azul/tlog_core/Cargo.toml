@@ -1,0 +1,27 @@
+# Vendored from cloudflare/azul at 2051772e (see ../VENDOR.md).
+#
+# This manifest is the one file rewritten during vendoring: the upstream
+# crate inherits version/edition/license fields and dependency versions from
+# the azul workspace, which is not present here. The dependency versions
+# below are the ones azul's workspace declares (and Cargo.lock resolves) at
+# the pinned SHA. src/, LICENSE and README.md are verbatim upstream copies.
+[package]
+name = "tlog_core"
+version = "0.2.0"
+authors = ["Luke Valenta <lvalenta@cloudflare.com>"]
+edition = "2024"
+license = "BSD-3-Clause"
+readme = "README.md"
+homepage = "https://github.com/cloudflare/azul"
+repository = "https://github.com/cloudflare/azul"
+description = "RFC 6962 Merkle tree math + draft-ietf-plants-merkle-tree-certs subtree proofs"
+publish = false
+
+[lib]
+crate-type = ["rlib"]
+
+[dependencies]
+base64 = "0.22"
+serde = { version = "1.0", features = ["derive"] }
+sha2 = "0.11"
+thiserror = "2.0"

@@ -1,0 +1,42 @@
+# The tamper-detection suite gates every commit — it is the only test that
+# exercises the central claim (docs/architecture.md Q78/Q92; the immudb
+# precedent). A commit that breaks tamper detection cannot merge.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  claim-under-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: verifier
+
+      - name: Build
+        run: make build
+
+      - name: Unit tests (Go + Rust)
+        run: make test
+
+      - name: Lint
+        run: make lint
+
+      - name: Cross-implementation conformance (Go writer ↔ Rust verifier)
+        run: make conformance
+
+      - name: Tamper-detection suite
+        run: make tamper-suite

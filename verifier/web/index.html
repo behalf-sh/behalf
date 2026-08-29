@@ -1,0 +1,607 @@
+<!doctype html>
+<!--
+  behalf offline verifier — browser build.
+
+  This file is the SOURCE TEMPLATE. `make wasm` (repo root) turns it into two
+  artifacts under verifier/web/dist/ (gitignored):
+
+    dist/index.html   + behalf_verify.js + behalf_verify_bg.wasm + samples/
+                      served over http:// — fetches the local .wasm
+    dist/verify.html  one file, wasm and sample inlined as base64
+                      opens straight from file://, no server, no network
+
+  Both run the same wasm, which is a wasm32-unknown-unknown build of the same
+  Rust crate the `behalf-verify` CLI is built from — src/verify.rs is compiled
+  once and reached from both sides. See verifier/src/wasm.rs.
+
+  The BEHALF:* comment markers below are the build script's splice points
+  (verifier/web/build.py). Leave them alone.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>behalf — offline export verifier</title>
+<style>
+:root {
+  color-scheme: light dark;
+  --bg: #fbfbfa;
+  --panel: #ffffff;
+  --panel-2: #f4f4f2;
+  --ink: #1a1a19;
+  --ink-dim: #5c5c58;
+  --ink-faint: #8a8a84;
+  --rule: #e2e2dd;
+  --rule-strong: #cfcfc8;
+  --ok: #10714a;
+  --ok-bg: #e8f5ee;
+  --ok-rule: #a9d8c1;
+  --bad: #a51d1d;
+  --bad-bg: #fdeceb;
+  --bad-rule: #efb4b0;
+  --warn: #7a5606;
+  --warn-bg: #fbf3e0;
+  --warn-rule: #e5cf9c;
+  --accent: #2c4bd0;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #16171a;
+    --panel: #1e2024;
+    --panel-2: #24262b;
+    --ink: #e8e8e4;
+    --ink-dim: #a6a8a4;
+    --ink-faint: #74776f;
+    --rule: #303338;
+    --rule-strong: #43474d;
+    --ok: #6ddba4;
+    --ok-bg: #12291f;
+    --ok-rule: #2c5a44;
+    --bad: #ff9b93;
+    --bad-bg: #2e1817;
+    --bad-rule: #6a3330;
+    --warn: #e8c476;
+    --warn-bg: #2b2312;
+    --warn-rule: #5d4b21;
+    --accent: #8fa6ff;
+  }
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 16px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+.wrap { max-width: 52rem; margin: 0 auto; padding: 2.5rem 1.25rem 5rem; }
+
+header.masthead { border-bottom: 1px solid var(--rule); padding-bottom: 1.5rem; margin-bottom: 2rem; }
+.brand { font-family: var(--mono); font-size: .8125rem; letter-spacing: .06em; text-transform: uppercase; color: var(--ink-faint); margin: 0 0 .6rem; }
+h1 { font-size: clamp(1.55rem, 4vw, 2.1rem); line-height: 1.2; margin: 0 0 .55rem; letter-spacing: -.015em; }
+.lede { margin: 0; color: var(--ink-dim); max-width: 40rem; }
+
+h2 { font-size: 1.05rem; letter-spacing: -.005em; margin: 2.5rem 0 .75rem; }
+h3 { font-size: .9375rem; margin: 1.4rem 0 .4rem; }
+p { margin: 0 0 .8rem; }
+code, kbd { font-family: var(--mono); font-size: .875em; background: var(--panel-2); border: 1px solid var(--rule); border-radius: 3px; padding: .08em .3em; }
+
+/* ---- drop zone ---- */
+#drop {
+  border: 2px dashed var(--rule-strong);
+  border-radius: 10px;
+  background: var(--panel);
+  padding: 2.25rem 1.5rem;
+  text-align: center;
+  transition: border-color .12s, background .12s;
+}
+#drop.over { border-color: var(--accent); background: var(--panel-2); }
+#drop .big { font-size: 1.0625rem; font-weight: 600; margin-bottom: .3rem; }
+#drop .sub { color: var(--ink-dim); font-size: .9375rem; margin-bottom: 1rem; }
+#drop .sub b { color: var(--ink); font-weight: 600; }
+
+button {
+  font: inherit;
+  font-size: .9375rem;
+  color: var(--ink);
+  background: var(--panel-2);
+  border: 1px solid var(--rule-strong);
+  border-radius: 6px;
+  padding: .45rem .85rem;
+  cursor: pointer;
+}
+button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+button:disabled { opacity: .45; cursor: default; }
+button.primary { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+button.primary:hover:not(:disabled) { opacity: .87; color: var(--bg); border-color: var(--ink); }
+.btnrow { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
+
+/* ---- result ---- */
+#result { margin-top: 1.5rem; }
+.verdict { border: 1px solid var(--rule); border-left-width: 4px; border-radius: 8px; padding: 1rem 1.15rem; background: var(--panel); }
+.verdict.ok { border-color: var(--ok-rule); border-left-color: var(--ok); background: var(--ok-bg); }
+.verdict.bad { border-color: var(--bad-rule); border-left-color: var(--bad); background: var(--bad-bg); }
+.verdict.unv { border-color: var(--warn-rule); border-left-color: var(--warn); background: var(--warn-bg); }
+.verdict .filename { font-family: var(--mono); font-size: .8125rem; color: var(--ink-dim); margin-bottom: .55rem; word-break: break-all; }
+.verdict pre {
+  font-family: var(--mono);
+  font-size: .9375rem;
+  line-height: 1.5;
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.verdict.ok pre { color: var(--ok); }
+.verdict.bad pre { color: var(--bad); }
+.verdict.unv pre { color: var(--warn); }
+
+.machine { margin-top: .9rem; padding-top: .75rem; border-top: 1px dashed var(--rule-strong); }
+.machine .label { font-size: .75rem; text-transform: uppercase; letter-spacing: .06em; color: var(--ink-faint); margin-bottom: .3rem; }
+.machine pre { font-family: var(--mono); font-size: .8125rem; margin: 0; color: var(--ink-dim); white-space: pre-wrap; }
+.exit { font-family: var(--mono); font-size: .8125rem; color: var(--ink-faint); margin-top: .55rem; }
+
+/* ---- panels ---- */
+.card { border: 1px solid var(--rule); border-radius: 8px; background: var(--panel); padding: 1.1rem 1.25rem; margin-bottom: 1rem; }
+.card h3 { margin-top: 0; }
+.note { font-size: .875rem; color: var(--ink-dim); }
+ul { margin: 0 0 .8rem; padding-left: 1.15rem; }
+li { margin-bottom: .38rem; }
+li:last-child { margin-bottom: 0; }
+li b { font-weight: 600; }
+
+.checks { display: grid; gap: 1rem; grid-template-columns: 1fr; }
+@media (min-width: 44rem) { .checks { grid-template-columns: 1fr 1fr; } }
+.checks .card { margin-bottom: 0; }
+.checks .yes h3 { color: var(--ok); }
+.checks .no h3 { color: var(--bad); }
+
+footer { margin-top: 3rem; padding-top: 1.25rem; border-top: 1px solid var(--rule); font-size: .8125rem; color: var(--ink-faint); }
+footer code { background: none; border: none; padding: 0; }
+a { color: var(--accent); }
+#boot-error { display: none; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="masthead">
+  <p class="brand">behalf · offline verifier</p>
+  <h1>Drop your export here. It is verified in this tab.</h1>
+  <p class="lede">
+    This page runs the <code>behalf-verify</code> verification core, compiled to
+    WebAssembly. The file you drop is read by JavaScript in your browser and handed
+    to the wasm module in memory. <b>It is never sent anywhere</b> — this page has no
+    upload code, no analytics, no fonts and no third-party requests of any kind.
+  </p>
+</header>
+
+<div id="drop">
+  <div class="big">Drop an export file</div>
+  <div class="sub">a <code>run_*.jsonl</code> in <b>behalf.sh/export/v1</b> format — or pick one</div>
+  <div class="btnrow" style="justify-content:center">
+    <button id="pick" class="primary">Choose a file…</button>
+    <input id="file" type="file" accept=".jsonl,.json,.txt,application/json,text/plain" hidden>
+  </div>
+</div>
+
+<div id="boot-error" class="card" style="border-color:var(--warn-rule);background:var(--warn-bg)">
+  <h3 style="color:var(--warn)">The verifier could not load</h3>
+  <p id="boot-error-msg" class="note"></p>
+  <p class="note">
+    Browsers block <code>fetch()</code> from <code>file://</code>. Either open the
+    single-file build <code>dist/verify.html</code>, which has the wasm inlined and
+    needs no server, or serve this directory:
+    <code>python3 -m http.server -d verifier/web/dist</code>.
+  </p>
+</div>
+
+<div id="result"></div>
+
+<h2>Try tampering with it</h2>
+<div class="card">
+  <p class="note" id="sample-intro">
+    Load the demo export — 47 receipts from a support-agent run that issues a refund
+    at step 31 — then break it. Each button below is one row of the tamper suite that
+    gates every commit to this repository (<code>docs/export-format-v1.md</code> §5).
+  </p>
+  <div class="btnrow">
+    <button id="s-intact" class="primary">Load the intact export</button>
+    <button id="s-coverup">Cover-up: 1200.00 → 12.00</button>
+    <button id="s-drop">Delete receipt 20</button>
+    <button id="s-chain">Edit the chain head</button>
+  </div>
+  <p class="note" id="sample-status" style="margin:.8rem 0 0"></p>
+</div>
+
+<h2>What a green tick here does and does not mean</h2>
+<div class="checks">
+  <div class="card yes">
+    <h3>✔ This page checks</h3>
+    <ul>
+      <li>Each receipt's <b>payload bytes</b>, taken as the exact byte span in the file,
+        hash to the <code>leaf_hash</code> the file declares. Nothing is re-serialised
+        first, so an edited byte cannot be normalised away.</li>
+      <li>Each receipt's <b>Ed25519 signature</b> verifies over those same bytes,
+        framed by DSSE PAE.</li>
+      <li>Receipt <b>indices</b> are contiguous and ascending — no gaps, no reordering.</li>
+      <li>The <b>hash chain</b> recomputed over every leaf equals the <code>chain</code>
+        value in the head, and the head's <b>own signature</b> verifies.</li>
+      <li>Signatures are checked against the public keys <b>carried in the export's own
+        header</b>, whose RFC 7638 thumbprints must match the keys they name.</li>
+    </ul>
+  </div>
+  <div class="card no">
+    <h3>✖ This page does not check</h3>
+    <ul>
+      <li><b>That the signing key is the legitimate one.</b> The export carries its own
+        keys. An export forged end to end under an attacker's key verifies here exactly
+        as a genuine one does. Binding a key to a real emitter is the published key
+        log's job — <b>that log does not exist yet</b>. Until it does, a green tick means
+        "internally consistent", not "authentic".</li>
+      <li><b>That the agent did what the receipt says.</b> This is integrity, not truth.
+        A receipt that was wrong when it was written verifies perfectly.</li>
+      <li><b>That this is the current export.</b> An old but intact copy verifies. Catching
+        a rolled-back or forked log needs the signed checkpoint and a witness, not a file.</li>
+      <li><b>Tile-directory (log) mode.</b> <code>behalf-verify log &lt;dir&gt;</code> checks a
+        Tessera tlog-tiles directory: checkpoint note signature, entry bundles, RFC 6962
+        root recomputation, the stale-restore rule. That needs a filesystem and is
+        <b>deliberately not in this build</b>. Use the command-line verifier.</li>
+    </ul>
+  </div>
+</div>
+
+<h2>Why you can believe "nothing is uploaded"</h2>
+<div class="card">
+  <ul>
+    <li><b>Check it yourself.</b> Open your browser's developer tools, switch to the
+      Network tab, and drop a file. Nothing appears.</li>
+    <li><b>Or take the network away.</b> Turn off Wi-Fi and reload. Everything still works.</li>
+    <li><b>Or read the source.</b> View source on this page: all of the CSS and all of
+      the JavaScript are here, in this file. The only things loaded from outside it are
+      the local <code>.wasm</code> beside it, and — if you press one of the sample
+      buttons — the demo export from the same directory. Nothing else, from anywhere.
+      In the single-file build (<code>verify.html</code>) both are inlined, so the page
+      fetches nothing at all: one document request and then silence.</li>
+    <li>The verifier itself has no network code to disable: it takes a byte slice and
+      returns a verdict. That is the point of an offline verifier — you do not need an
+      account with behalf, or behalf's cooperation, or behalf's continued existence, to
+      check the evidence.</li>
+  </ul>
+</div>
+
+<h2>The same result, from the command line</h2>
+<div class="card">
+  <p class="note">
+    The wasm module here and the <code>behalf-verify</code> binary are built from one
+    Rust crate — the same <code>verify_export</code>, the same classes, the same exit
+    codes. What you see above is what the terminal prints:
+  </p>
+  <pre style="font-family:var(--mono);font-size:.8125rem;color:var(--ink-dim);white-space:pre-wrap;margin:0">$ behalf-verify run_c71e.jsonl
+✔ 47/47 receipts intact   chain head 7136…8958
+$ echo $?
+0
+
+$ sed 's/1200.00/12.00/' run_c71e.jsonl > covered.jsonl
+$ behalf-verify covered.jsonl
+✖ TAMPERED
+receipt 31: content hash mismatch (expected 66f9… computed cb44…)
+chain breaks at 31; receipts 32-46 unverifiable.
+$ echo $?
+1</pre>
+  <p class="note" style="margin:.8rem 0 0">
+    Exit codes are stable and documented: <b>0</b> verified, <b>1</b> tampering detected,
+    <b>2</b> unverifiable — not a readable export.
+  </p>
+</div>
+
+<footer>
+  <p id="stamp"><!--BEHALF:STAMP--></p>
+  <p>Format <code>behalf.sh/export/v1</code> · verification contract in
+     <code>docs/export-format-v1.md</code> · no network, no filesystem, no telemetry.</p>
+</footer>
+
+</div>
+
+<!--BEHALF:GLUE:BEGIN-->
+<script src="./behalf_verify.js"></script>
+<!--BEHALF:GLUE:END-->
+
+<!--BEHALF:DATA:BEGIN-->
+<script>
+window.BEHALF_BUILD = {
+  wasmB64: null,
+  wasmUrl: "./behalf_verify_bg.wasm",
+  sampleB64: null,
+  sampleUrl: "./samples/run_c71e.jsonl",
+  sampleName: "run_c71e.jsonl"
+};
+</script>
+<!--BEHALF:DATA:END-->
+
+<script>
+(function () {
+  "use strict";
+
+  var B = window.BEHALF_BUILD || {};
+  var els = {
+    drop: document.getElementById("drop"),
+    pick: document.getElementById("pick"),
+    file: document.getElementById("file"),
+    result: document.getElementById("result"),
+    bootError: document.getElementById("boot-error"),
+    bootErrorMsg: document.getElementById("boot-error-msg"),
+    stamp: document.getElementById("stamp"),
+    sampleStatus: document.getElementById("sample-status"),
+    sIntact: document.getElementById("s-intact"),
+    sCoverup: document.getElementById("s-coverup"),
+    sDrop: document.getElementById("s-drop"),
+    sChain: document.getElementById("s-chain")
+  };
+
+  // Loading the wasm takes a moment. Rather than ignore a click that lands
+  // first, every entry point waits on the same boot promise.
+  var bootPromise = null;
+  var sampleText = null; // the intact sample, as text, once loaded
+
+  function whenReady() { return bootPromise || Promise.resolve(false); }
+
+  // ---- helpers -------------------------------------------------------
+
+  function b64ToBytes(b64) {
+    var bin = atob(b64);
+    var out = new Uint8Array(bin.length);
+    for (var i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+    return out;
+  }
+
+  function text(node, s) { node.textContent = s; }
+
+  function el(tag, cls, txt) {
+    var n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (txt !== undefined) n.textContent = txt;
+    return n;
+  }
+
+  // ---- boot ----------------------------------------------------------
+
+  function bootFailed(msg) {
+    els.bootError.style.display = "block";
+    text(els.bootErrorMsg, msg);
+    els.pick.disabled = true;
+    sampleButtons(false);
+  }
+
+  function boot() {
+    if (typeof wasm_bindgen !== "function") {
+      bootFailed("behalf_verify.js did not load. It must sit next to this page.");
+      return Promise.resolve(false);
+    }
+    try {
+      if (B.wasmB64) {
+        // Single-file build: the module is inlined, so this is synchronous
+        // and works from file:// with no fetch at all.
+        wasm_bindgen.initSync({ module: b64ToBytes(B.wasmB64) });
+        return Promise.resolve(true);
+      }
+      return wasm_bindgen({ module_or_path: B.wasmUrl }).then(function () {
+        return true;
+      });
+    } catch (e) {
+      return Promise.reject(e);
+    }
+  }
+
+  function stamp() {
+    if (!els.stamp.textContent.trim()) {
+      try {
+        var info = JSON.parse(wasm_bindgen.verifierInfo());
+        text(els.stamp, info.name + " " + info.version + " — WebAssembly build, file mode only.");
+      } catch (e) { /* stamp is cosmetic */ }
+    }
+  }
+
+  // ---- verification ---------------------------------------------------
+
+  function verifyBytes(bytes, label) {
+    whenReady().then(function (ok) {
+      if (!ok) return; // bootFailed() has already said why, on the page
+      var raw;
+      try {
+        raw = wasm_bindgen.verifyExport(bytes);
+      } catch (e) {
+        // The wasm surface is built not to throw; if it ever does, say so
+        // plainly rather than showing a stale or invented verdict.
+        render({
+          verdict: "unverifiable", exit_code: 2,
+          stdout: "✖ UNVERIFIABLE: the verifier itself failed",
+          stderr: [String(e)], failures: [], duplicates: [], notes: []
+        }, label);
+        return;
+      }
+      var res;
+      try { res = JSON.parse(raw); }
+      catch (e) {
+        render({
+          verdict: "unverifiable", exit_code: 2,
+          stdout: "✖ UNVERIFIABLE: malformed result",
+          stderr: [], failures: [], duplicates: [], notes: []
+        }, label);
+        return;
+      }
+      render(res, label);
+    });
+  }
+
+  function render(res, label) {
+    var cls = res.verdict === "verified" ? "ok" : (res.verdict === "tampered" ? "bad" : "unv");
+    var box = el("div", "verdict " + cls);
+
+    if (label) box.appendChild(el("div", "filename", label));
+
+    // The CLI's own stdout block, verbatim: the vocabulary the terminal uses.
+    box.appendChild(el("pre", null, res.stdout || ""));
+
+    var lines = (res.stderr || []).slice();
+    if (lines.length) {
+      var m = el("div", "machine");
+      m.appendChild(el("div", "label", "machine-readable (stderr)"));
+      m.appendChild(el("pre", null, lines.join("\n")));
+      box.appendChild(m);
+    }
+
+    var exitNote = "exit " + res.exit_code + " · " +
+      (res.exit_code === 0 ? "verified" :
+       res.exit_code === 1 ? "tampering detected" : "unverifiable — not a readable export");
+    box.appendChild(el("div", "exit", exitNote));
+
+    els.result.innerHTML = "";
+    els.result.appendChild(box);
+    box.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }
+
+  function verifyFile(file) {
+    var reader = new FileReader();
+    reader.onload = function () {
+      verifyBytes(new Uint8Array(reader.result), file.name + " · " + reader.result.byteLength + " bytes");
+    };
+    reader.onerror = function () {
+      render({ verdict: "unverifiable", exit_code: 2,
+               stdout: "✖ UNVERIFIABLE: could not read that file",
+               stderr: [], failures: [], duplicates: [], notes: [] }, file.name);
+    };
+    reader.readAsArrayBuffer(file);
+  }
+
+  // ---- drag and drop --------------------------------------------------
+
+  ["dragenter", "dragover"].forEach(function (ev) {
+    els.drop.addEventListener(ev, function (e) {
+      e.preventDefault(); e.stopPropagation();
+      els.drop.classList.add("over");
+    });
+  });
+  ["dragleave", "drop"].forEach(function (ev) {
+    els.drop.addEventListener(ev, function (e) {
+      e.preventDefault(); e.stopPropagation();
+      els.drop.classList.remove("over");
+    });
+  });
+  els.drop.addEventListener("drop", function (e) {
+    var f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+    if (f) verifyFile(f);
+  });
+  // A file dropped anywhere else must not navigate the tab away.
+  window.addEventListener("dragover", function (e) { e.preventDefault(); });
+  window.addEventListener("drop", function (e) { e.preventDefault(); });
+
+  els.pick.addEventListener("click", function () { els.file.click(); });
+  els.file.addEventListener("change", function () {
+    if (els.file.files && els.file.files[0]) verifyFile(els.file.files[0]);
+    els.file.value = "";
+  });
+
+  // ---- the sample and its mutations -----------------------------------
+
+  function sampleButtons(on) {
+    [els.sIntact, els.sCoverup, els.sDrop, els.sChain].forEach(function (b) {
+      b.disabled = !on;
+    });
+  }
+
+  function loadSample() {
+    if (sampleText !== null) return Promise.resolve(sampleText);
+    if (B.sampleB64) {
+      var bytes = b64ToBytes(B.sampleB64);
+      sampleText = new TextDecoder().decode(bytes);
+      return Promise.resolve(sampleText);
+    }
+    if (!B.sampleUrl) return Promise.reject(new Error("no sample in this build"));
+    return fetch(B.sampleUrl).then(function (r) {
+      if (!r.ok) throw new Error("sample fetch failed: " + r.status);
+      return r.text();
+    }).then(function (t) { sampleText = t; return t; });
+  }
+
+  function runSample(mutate, label, description) {
+    loadSample().then(function (t) {
+      var out = mutate ? mutate(t) : t;
+      text(els.sampleStatus, description);
+      verifyBytes(new TextEncoder().encode(out), label);
+    }).catch(function (e) {
+      sampleButtons(false);
+      text(els.sampleStatus, "Could not load the sample: " + e.message +
+        " — the sample lives next to this page; the single-file build has it inlined.");
+    });
+  }
+
+  // Cover-up: the documented sed. The literal appears exactly once, in the
+  // step-31 refund payload.
+  function coverUp(t) { return t.replace("1200.00", "12.00"); }
+
+  // Drop: remove the leaf line whose index is 20.
+  function dropReceipt(t) {
+    var lines = t.split("\n");
+    var kept = [];
+    for (var i = 0; i < lines.length; i++) {
+      if (lines[i].indexOf('"kind":"leaf","index":20,') !== -1) continue;
+      kept.push(lines[i]);
+    }
+    return kept.join("\n");
+  }
+
+  // Chain edit: flip one hex digit of head.chain, staying in the alphabet.
+  function editChain(t) {
+    return t.replace(/("chain":")([0-9a-f])/, function (_, pre, c) {
+      return pre + (c === "0" ? "1" : "0");
+    });
+  }
+
+  els.sIntact.addEventListener("click", function () {
+    runSample(null, B.sampleName + " · unmodified",
+      "The export as it was written. 47 receipts, chain and head verify — exit 0.");
+  });
+  els.sCoverup.addEventListener("click", function () {
+    runSample(coverUp, B.sampleName + " · refund amount edited",
+      "One substring changed: the refund at step 31 now reads 12.00 instead of 1200.00. " +
+      "The payload no longer hashes to its signed leaf, so receipt 31 is content tampering " +
+      "and everything after it is unverifiable.");
+  });
+  els.sDrop.addEventListener("click", function () {
+    runSample(dropReceipt, B.sampleName + " · receipt 20 deleted",
+      "One whole leaf line removed. The indices now skip 20, which is a dropped receipt — " +
+      "deleting evidence is as visible as editing it.");
+  });
+  els.sChain.addEventListener("click", function () {
+    runSample(editChain, B.sampleName + " · chain head edited",
+      "One hex digit of the signed chain head changed, to make the head agree with a " +
+      "doctored file. The chain recomputed from the leaves no longer matches it.");
+  });
+
+  // ---- go -------------------------------------------------------------
+
+  // A build without the demo export (no `make fixtures` before `make wasm`)
+  // still verifies dropped files; it just has nothing to break for you.
+  if (!B.sampleB64 && !B.sampleUrl) {
+    sampleButtons(false);
+    text(els.sampleStatus,
+      "This build has no demo export bundled. Drop your own export above, " +
+      "or run `make fixtures` before `make wasm` and rebuild.");
+  }
+
+  bootPromise = boot().then(function (ok) {
+    if (ok) stamp();
+    return !!ok;
+  }).catch(function (e) {
+    bootFailed(String(e && e.message ? e.message : e));
+    return false;
+  });
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,54 @@
+[package]
+name = "behalf-verify"
+version = "0.1.0"
+edition = "2021"
+description = "Offline verifier for behalf.sh/export/v1 audit exports (Week-1 hand-rolled chain)"
+license = "UNLICENSED"
+publish = false
+
+[lib]
+name = "behalf_verify"
+# `cdylib` is the wasm32 artifact wasm-bindgen post-processes; `rlib` is what
+# the CLI binary and the native test suite link against. Both are always
+# declared — on native targets the cdylib is an unused extra artifact, and the
+# binary's behaviour is unaffected.
+crate-type = ["cdylib", "rlib"]
+path = "src/lib.rs"
+
+[[bin]]
+name = "behalf-verify"
+path = "src/main.rs"
+
+[dependencies]
+base64 = "0.22"
+ed25519-dalek = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+
+# Native-only: the RFC 6962 Merkle math is used exclusively by log-directory
+# mode (`verify log <dir>`), which needs a filesystem and is therefore not
+# part of the wasm surface. Vendored from cloudflare/azul at a pinned SHA
+# (architecture D6/Q94); see vendor/azul/VENDOR.md.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+tlog_core = { path = "vendor/azul/tlog_core" }
+
+# Wasm-only: the browser shim. Nothing here is resolved for native builds, so
+# `cargo build`/`test`/`clippy` on the CLI never see wasm-bindgen at all.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = "0.2"
+
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+wasm-bindgen-test = "0.3"
+
+# Size-tuned profile for the browser artifact only. A custom profile leaves
+# `release` — and therefore the native `behalf-verify` binary — untouched.
+# `panic = "abort"` is safe here because the wasm surface never panics on
+# untrusted bytes by construction (see src/wasm.rs).
+[profile.release-wasm]
+inherits = "release"
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

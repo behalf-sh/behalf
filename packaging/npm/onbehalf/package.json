@@ -1,0 +1,24 @@
+{
+  "name": "onbehalf",
+  "version": "0.0.0",
+  "description": "Action receipts for AI agents — run `npx onbehalf demo` to see two runs of the same agent, and the one step that made them differ.",
+  "license": "Apache-2.0",
+  "repository": { "type": "git", "url": "git+https://github.com/behalf-sh/behalf.git" },
+  "homepage": "https://github.com/behalf-sh/behalf#readme",
+  "bugs": { "url": "https://github.com/behalf-sh/behalf/issues" },
+  "keywords": ["agent", "audit", "receipts", "delegation", "provenance", "mcp"],
+  "bin": {
+    "onbehalf": "bin/onbehalf.js",
+    "behalf": "bin/behalf.js"
+  },
+  "files": ["bin/", "demo/", "README.md", "LICENSE", "NOTICE"],
+  "engines": { "node": ">=18" },
+  "optionalDependencies": {
+    "@onbehalf/cli-darwin-arm64": "0.0.0",
+    "@onbehalf/cli-darwin-x64": "0.0.0",
+    "@onbehalf/cli-linux-arm64": "0.0.0",
+    "@onbehalf/cli-linux-x64": "0.0.0",
+    "@onbehalf/cli-win32-arm64": "0.0.0",
+    "@onbehalf/cli-win32-x64": "0.0.0"
+  }
+}

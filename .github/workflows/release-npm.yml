@@ -1,0 +1,233 @@
+# Publishing the npm packages (ENG-17, D9.8).
+#
+# Six per-platform packages plus one root package, published over npm's trusted
+# publishing (OIDC) with provenance attestations. No NPM_TOKEN exists anywhere
+# in this repository or its secrets, and that is the point: a long-lived
+# publishing credential is a thing that can leak, and a provenance product whose
+# own release pipeline could be hijacked by a stolen token has an argument
+# problem before it has a security problem.
+#
+# Two consequences of that choice, both deliberate:
+#
+#   - `id-token: write` is required, and is granted to the publish job alone.
+#   - Provenance is emitted by default under trusted publishing. It names this
+#     workflow, this commit and this runner as the thing that built the tarball,
+#     which is checkable by anyone from npm.
+#
+# # Why each platform builds on its own runner
+#
+# Go cross-compiles from anywhere — no cgo, one `GOOS`/`GOARCH` pair. The Rust
+# verifier does not, and shipping it is the whole point of D9.8: the punchline
+# is that you break something and an *independent* binary catches it, so sending
+# the audience to a browser tab instead would move that beat somewhere else.
+# `REQUIRE_VERIFIER=1` makes a missing Rust target fatal rather than quietly
+# shipping a platform package with no verifier in it.
+#
+# # Setup this workflow assumes, and cannot check
+#
+#   1. A trusted publisher configured on npmjs.com for `onbehalf` and for each
+#      `@onbehalf/cli-*` package, naming this repository and this workflow file.
+#      Configurations created after 20 May 2026 must also name the allowed
+#      actions explicitly.
+#   2. Whether npm's public provenance attestations can be produced from a
+#      PRIVATE source repository. If they cannot, the choice is between opening
+#      the repository and publishing without attestation — and for this product
+#      the second is not really a choice. Carried on ENG-17.
+#
+# A dry run (`workflow_dispatch` with publish=false) exercises everything except
+# the publish step, which is the half worth rehearsing before a first release.
+
+name: release-npm
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to build (e.g. 0.1.0). Ignored for tag pushes."
+        required: true
+        type: string
+      publish:
+        description: "Publish to npm. Off means build and inspect only."
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.pick.outputs.version }}
+    steps:
+      - id: pick
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            v="${GITHUB_REF_NAME#v}"
+          else
+            v="${{ inputs.version }}"
+          fi
+          # A version npm will not accept should fail here, before six runners
+          # spend ten minutes building artefacts nobody can publish.
+          echo "$v" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$' \
+            || { echo "not a semver version: $v" >&2; exit 1; }
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: version
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - platform: darwin-arm64
+            runner: macos-latest
+            rust-target: aarch64-apple-darwin
+          - platform: darwin-x64
+            runner: macos-latest
+            rust-target: x86_64-apple-darwin
+          - platform: linux-x64
+            runner: ubuntu-latest
+            rust-target: x86_64-unknown-linux-gnu
+          - platform: linux-arm64
+            runner: ubuntu-24.04-arm
+            rust-target: aarch64-unknown-linux-gnu
+          - platform: win32-x64
+            runner: windows-latest
+            rust-target: x86_64-pc-windows-msvc
+          - platform: win32-arm64
+            runner: windows-11-arm
+            rust-target: aarch64-pc-windows-msvc
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust-target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: verifier
+          key: ${{ matrix.rust-target }}
+
+      - name: Build the platform package
+        shell: bash
+        env:
+          REQUIRE_VERIFIER: "1"
+        run: packaging/npm/build.sh "${{ needs.version.outputs.version }}" "${{ matrix.platform }}"
+
+      # A package that cannot run on the machine that built it is not going to
+      # start working on a stranger's. This is the cheapest possible smoke test
+      # and it catches the whole class of cross-compilation mistakes — wrong
+      # GOARCH mapping, a verifier built for the host rather than the target —
+      # that would otherwise be found by a user.
+      - name: Smoke-test the binaries
+        shell: bash
+        run: |
+          d=packaging/npm/dist/cli-${{ matrix.platform }}/bin
+          ls -l "$d"
+          host="$(go env GOOS)-$(go env GOARCH)"
+          want="$(echo '${{ matrix.platform }}' | sed 's/win32/windows/; s/x64/amd64/')"
+          if [ "$host" = "$want" ]; then
+            "$d/behalf" help >/dev/null || "$d/behalf.exe" help >/dev/null
+            "$d/behalf-verify" 2>/dev/null || true
+            echo "ran on the build host"
+          else
+            echo "cross-built for $want on $host — not executable here, skipping the run"
+          fi
+
+      - uses: actions/upload-artifact@v5
+        with:
+          name: cli-${{ matrix.platform }}
+          path: packaging/npm/dist/cli-${{ matrix.platform }}
+          retention-days: 7
+          if-no-files-found: error
+
+  root:
+    needs: version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      # The root package carries no binaries, so it needs no Rust and no
+      # per-platform anything. It carries the two recorded runs and the
+      # launchers, and build.sh is given one platform only to keep it from
+      # cross-building six sets of Go binaries this job will throw away.
+      - name: Build the root package
+        run: packaging/npm/build.sh "${{ needs.version.outputs.version }}" linux-x64
+
+      - name: The recording must actually be in it
+        run: |
+          test -s packaging/npm/dist/onbehalf/demo/run_9f2a.jsonl
+          test -s packaging/npm/dist/onbehalf/demo/run_c71e.jsonl
+          node -e '
+            const m = require("./packaging/npm/dist/onbehalf/package.json");
+            const v = "${{ needs.version.outputs.version }}";
+            if (m.version !== v) throw new Error(`root version ${m.version} != ${v}`);
+            for (const [k, dv] of Object.entries(m.optionalDependencies))
+              if (dv !== v) throw new Error(`${k} pinned to ${dv} != ${v}`);
+            if (m.scripts && m.scripts.postinstall)
+              throw new Error("a postinstall script appeared: D9.8 forbids one");
+            console.log("root package looks right");
+          '
+
+      - uses: actions/upload-artifact@v5
+        with:
+          name: onbehalf
+          path: packaging/npm/dist/onbehalf
+          retention-days: 7
+          if-no-files-found: error
+
+  publish:
+    needs: [version, build, root]
+    if: github.event_name == 'push' || inputs.publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # the whole of the publishing credential
+    steps:
+      - uses: actions/download-artifact@v6
+        with:
+          path: dist
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          registry-url: "https://registry.npmjs.org"
+
+      # Trusted publishing needs a recent npm; the runner's bundled one may
+      # predate it. Pinning the major keeps a surprise upgrade from changing how
+      # a release is published.
+      - run: npm install -g npm@^11
+
+      # Platform packages first. The root package declares them as
+      # optionalDependencies at an exact version, so publishing it first would
+      # leave a window in which `npx onbehalf demo` installs a root package
+      # whose binaries do not exist yet.
+      - name: Publish the platform packages
+        run: |
+          set -euo pipefail
+          for d in dist/cli-*; do
+            echo "::group::$d"
+            npm publish --access public "$d"
+            echo "::endgroup::"
+          done
+
+      - name: Publish the root package
+        run: npm publish --access public dist/onbehalf
+
+      - name: What was published
+        run: |
+          echo "onbehalf@${{ needs.version.outputs.version }} and six platform packages."
+          echo "Provenance is attached by trusted publishing; check it at"
+          echo "  https://www.npmjs.com/package/onbehalf#provenance"
