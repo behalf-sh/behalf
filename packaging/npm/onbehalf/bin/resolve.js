@@ -19,14 +19,14 @@
 const fs = require('fs')
 const path = require('path')
 
-// The six platforms with published packages, keyed the way Node reports them.
+// The platforms with published packages, keyed the way Node reports them.
+// Windows is absent on purpose: the log's storage driver is POSIX-only, so
+// neither `behalf` nor `behalf-log` builds there, and the demo needs both.
 const SUPPORTED = new Set([
   'darwin-arm64',
   'darwin-x64',
   'linux-arm64',
-  'linux-x64',
-  'win32-arm64',
-  'win32-x64'
+  'linux-x64'
 ])
 
 function platformKey () {
@@ -44,8 +44,13 @@ function packageName () {
 function binary (name) {
   const key = platformKey()
   if (!SUPPORTED.has(key)) {
+    const windows = process.platform === 'win32'
+      ? '  Windows is not supported yet: the log\'s storage driver is POSIX-only.\n' +
+        '  It runs under WSL. Tracked at https://github.com/behalf-sh/behalf/issues\n'
+      : ''
     throw new Error(
       `behalf does not ship a binary for ${key}.\n` +
+      windows +
       `  Supported: ${[...SUPPORTED].join(', ')}.\n` +
       '  Everything here builds from source: https://github.com/behalf-sh/behalf'
     )
