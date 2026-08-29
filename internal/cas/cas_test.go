@@ -70,3 +70,18 @@ func TestMissingAndTamperedAreDifferentFindings(t *testing.T) {
 		t.Fatalf("TamperError = %+v", te)
 	}
 }
+
+func TestPutCreatesTheStoreDirectory(t *testing.T) {
+	// A fresh state directory has no blobs/ yet. The first Put must make it,
+	// or every caller has to know to — and the one that did not was
+	// `behalf-log import` on the machine the npm demo runs on.
+	dir := filepath.Join(t.TempDir(), "state", "blobs")
+	s := New(dir)
+	d, err := s.Put([]byte("hello"))
+	if err != nil {
+		t.Fatalf("Put into a missing directory: %v", err)
+	}
+	if got, err := s.Get(d); err != nil || string(got) != "hello" {
+		t.Fatalf("Get after Put: %q, %v", got, err)
+	}
+}
