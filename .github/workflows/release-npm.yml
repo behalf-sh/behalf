@@ -214,17 +214,22 @@ jobs:
       # optionalDependencies at an exact version, so publishing it first would
       # leave a window in which `npx onbehalf demo` installs a root package
       # whose binaries do not exist yet.
+      # The `./` is load-bearing. npm reads a bare `dist/cli-darwin-arm64` as the
+      # GitHub shorthand `github:dist/cli-darwin-arm64` and tries to `git
+      # ls-remote` it over SSH — which is exactly how the first tagged release
+      # (v0.1.0, 29 Aug 2026) failed, after every build job had gone green.
+      # A leading `./` makes it unambiguously a directory.
       - name: Publish the platform packages
         run: |
           set -euo pipefail
-          for d in dist/cli-*; do
+          for d in ./dist/cli-*; do
             echo "::group::$d"
             npm publish --access public "$d"
             echo "::endgroup::"
           done
 
       - name: Publish the root package
-        run: npm publish --access public dist/onbehalf
+        run: npm publish --access public ./dist/onbehalf
 
       - name: What was published
         run: |
