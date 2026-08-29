@@ -1,4 +1,4 @@
-package tlog
+package tlog_test
 
 import (
 	"bytes"
@@ -7,6 +7,7 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"errors"
+	. "github.com/behalf-sh/behalf/internal/tlog"
 	"os"
 	"path/filepath"
 	"testing"
@@ -20,27 +21,6 @@ import (
 	"github.com/behalf-sh/behalf/internal/jsonspan"
 	"github.com/behalf-sh/behalf/internal/testkeys"
 )
-
-// openTestLog creates a fresh log dir with a generated checkpoint key and
-// opens it with the production defaults (1 s checkpoint, 250 ms batch).
-func openTestLog(t *testing.T, dir string) (*Log, *CheckpointKey) {
-	t.Helper()
-	key, err := LoadCheckpointKey(dir)
-	if err != nil {
-		key, err = GenerateCheckpointKey("behalf.sh/log/test")
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := SaveCheckpointKey(dir, key); err != nil {
-			t.Fatal(err)
-		}
-	}
-	l, err := Open(context.Background(), dir, key, Options{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return l, key
-}
 
 // fixtureEnvelopes generates the run's sealed payloads and wraps each in a
 // stored envelope signed by the fixture emitter key.
@@ -75,7 +55,7 @@ func registerEmitter(t *testing.T, l *Log) {
 // driver, durable commit includes integration).
 func TestAppendAckDurable(t *testing.T) {
 	dir := t.TempDir()
-	l, _ := openTestLog(t, dir)
+	l, _ := OpenTestLog(t, dir)
 	defer l.Close(context.Background())
 
 	envs, _ := fixtureEnvelopes(t, fixture.Run9F2A())
@@ -146,7 +126,7 @@ func fmtHex(b []byte) string {
 func TestDedup(t *testing.T) {
 	dir := t.TempDir()
 	ctx := context.Background()
-	l, _ := openTestLog(t, dir)
+	l, _ := OpenTestLog(t, dir)
 
 	envs, _ := fixtureEnvelopes(t, fixture.Run9F2A())
 	first, err := l.Append(ctx, envs[0])
@@ -171,7 +151,7 @@ func TestDedup(t *testing.T) {
 	}
 
 	// Reopen: the dedup window survives restart.
-	l2, _ := openTestLog(t, dir)
+	l2, _ := OpenTestLog(t, dir)
 	defer l2.Close(ctx)
 	dup2, err := l2.Append(ctx, envs[0])
 	if err != nil {
@@ -191,7 +171,7 @@ func TestDedup(t *testing.T) {
 func TestCheckpointPublishes(t *testing.T) {
 	dir := t.TempDir()
 	ctx := context.Background()
-	l, key := openTestLog(t, dir)
+	l, key := OpenTestLog(t, dir)
 	defer l.Close(ctx)
 
 	envs, _ := fixtureEnvelopes(t, fixture.Run9F2A())
@@ -221,7 +201,7 @@ func TestCheckpointPublishes(t *testing.T) {
 func TestEpochFencing(t *testing.T) {
 	dir := t.TempDir()
 	ctx := context.Background()
-	l, _ := openTestLog(t, dir)
+	l, _ := OpenTestLog(t, dir)
 	defer l.Close(ctx)
 
 	envs, _ := fixtureEnvelopes(t, fixture.Run9F2A())
@@ -231,7 +211,7 @@ func TestEpochFencing(t *testing.T) {
 
 	// A newer claimant appears.
 	newer := EpochRecord{Epoch: l.Epoch().Epoch + 1, PID: os.Getpid(), StartedAt: time.Now().UTC().Format(time.RFC3339)}
-	if err := writeEpoch(dir, newer); err != nil {
+	if err := WriteEpoch(dir, newer); err != nil {
 		t.Fatal(err)
 	}
 
@@ -252,7 +232,7 @@ func TestEpochFencing(t *testing.T) {
 func TestExportFromLog(t *testing.T) {
 	dir := t.TempDir()
 	ctx := context.Background()
-	l, key := openTestLog(t, dir)
+	l, key := OpenTestLog(t, dir)
 	registerEmitter(t, l)
 
 	specs := []fixture.Spec{fixture.Run9F2A(), fixture.RunC71E()}
