@@ -17,8 +17,6 @@
     "@onbehalf/cli-darwin-arm64": "0.0.0",
     "@onbehalf/cli-darwin-x64": "0.0.0",
     "@onbehalf/cli-linux-arm64": "0.0.0",
-    "@onbehalf/cli-linux-x64": "0.0.0",
-    "@onbehalf/cli-win32-arm64": "0.0.0",
-    "@onbehalf/cli-win32-x64": "0.0.0"
+    "@onbehalf/cli-linux-x64": "0.0.0"
   }
 }
