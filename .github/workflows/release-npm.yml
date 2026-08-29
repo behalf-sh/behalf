@@ -205,6 +205,29 @@ jobs:
           node-version: "22"
           registry-url: "https://registry.npmjs.org"
 
+      # Artifacts do not carry file modes. actions/upload-artifact zips the
+      # directory and actions/download-artifact unzips it, and the execute bit
+      # does not survive the round trip — so every binary arrives here 0644,
+      # npm packs it 0644, and `npx onbehalf demo` fails on the user's machine
+      # with spawnSync EACCES. v0.1.0 (29 Aug 2026) shipped exactly that. The
+      # build job's smoke test cannot see it, because it runs before upload.
+      #
+      # Restore the bit, then refuse to publish anything that is not
+      # executable — and actually run the one binary this runner can run, so a
+      # package that would fail on a user's machine fails here instead.
+      - name: Restore executable bits, and prove the binaries run
+        run: |
+          set -euo pipefail
+          chmod +x ./dist/cli-*/bin/*
+          for f in ./dist/cli-*/bin/*; do
+            test -x "$f" || { echo "not executable after chmod: $f" >&2; exit 1; }
+          done
+          ls -l ./dist/cli-*/bin/
+          ./dist/cli-linux-x64/bin/behalf help >/dev/null
+          ./dist/cli-linux-x64/bin/behalf-log 2>/dev/null || true
+          ./dist/cli-linux-x64/bin/behalf-verify 2>/dev/null || true
+          echo "linux-x64 binaries run on this runner"
+
       # Trusted publishing needs a recent npm; the runner's bundled one may
       # predate it. Pinning the major keeps a surprise upgrade from changing how
       # a release is published.
