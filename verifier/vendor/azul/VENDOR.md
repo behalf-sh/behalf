@@ -63,3 +63,17 @@ suite cross-checks it end-to-end against trees written by Tessera v1.0.4
 Re-clone azul, check out the new SHA, re-copy the files above, re-apply the
 Cargo.toml rewrite, update the table and the lib.rs digest here, and re-run
 `make ci` (the conformance vectors and tamper suite are the gate).
+
+## Compiled in as a module, not a crate (29 Aug 2026)
+
+`tlog_core/` no longer carries a `Cargo.toml`. The verifier includes
+`tlog_core/src/lib.rs` directly, as `#[path]` module `behalf_verify::tlog_core`
+(native builds only), because crates.io accepts no path dependencies and azul
+is unpublished there — and because a nested manifest makes cargo treat the
+directory as a separate package and drop it from this crate's tarball.
+
+The upstream manifest that was here declared, at the pinned SHA: edition 2024,
+`base64 = "0.22"`, `serde = "1.0"` (derive), `sha2 = "0.11"`, `thiserror = "2.0"`.
+Those are now the verifier's own dependency lines. `src/lib.rs`, `LICENSE` and
+`README.md` remain verbatim upstream copies; the vendoring procedure below is
+unchanged except that the manifest is not copied.
