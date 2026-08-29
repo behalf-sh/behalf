@@ -43,6 +43,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/behalf-sh/behalf/internal/aat"
 	"sort"
 	"strconv"
 	"strings"
@@ -147,8 +148,16 @@ func Generate(spec Spec) (*Result, error) {
 		headSigner = exportv1.Signer{Private: spec.HeadSigner.Private, KeyID: spec.HeadSigner.JKT}
 	}
 
+	// The export carries the hop tokens the receipts reference, so the offline
+	// verifier has something to check the delegation chain against. Without
+	// this the shipped demo told the sceptic "0 delegation hop(s) checked" —
+	// honest, and exactly the wrong thing to be honest about (ENG-42).
+	_, tokens, err := mintDemoChain(spec)
+	if err != nil {
+		return nil, err
+	}
 	var buf bytes.Buffer
-	w, err := exportv1.NewWriter(&buf, spec.LogOrigin, keys)
+	w, err := exportv1.NewWriterWithTokens(&buf, spec.LogOrigin, keys, tokens)
 	if err != nil {
 		return nil, err
 	}
@@ -581,144 +590,153 @@ var demoSubDigest = sha256Hex([]byte("https://accounts.google.com#sub:1047293188
 // attenuation delta and any scope excess are computed at read time from
 // these bytes and never stamped back into the record (Q11, Q13).
 func demoAuthority(spec Spec) *receipt.Authority {
-	root := testkeys.ActorRoot()
-	hop1 := testkeys.ActorHop1()
-	hop2 := testkeys.ActorHop2()
+	auth, _, err := mintDemoChain(spec)
+	if err != nil {
+		// Minting is deterministic over fixed keys and fixed claims; the only
+		// way to reach this is a change to the claim set that Mint refuses,
+		// which is a programming error worth failing loudly on.
+		panic("fixture: mint demo chain: " + err.Error())
+	}
+	return auth
+}
+
+// mintDemoChain mints the three-hop delegation chain every receipt in a demo
+// run embeds, and returns it in the receipt's own shape together with the
+// compact tokens an export must carry.
+//
+// These are real tokens, signed under the test keys `cmd/behalf-record` uses
+// for the same three actors, with the same claim set the recorder mints — so
+// the offline verifier's I1/I2/I3/I5 checks run on the shipped demo exactly as
+// they run on a recorded pair. Mint is deterministic (no clock, no randomness),
+// which is what keeps the fixture byte-identical across invocations.
+//
+// The one divergence between the runs is the leaf hop. In run A it is signed
+// by the orchestrator and verified; in run B it arrives with the same claim
+// set and no token at all — caller-asserted — which is precisely what an agent
+// asserting the human's authority looks like on the wire. Run B's export
+// therefore carries two tokens, not three: there is no third token to carry.
+//
+// The root's verification is the one thing not established here. A fixture
+// has no login to check the OIDC binding against, so the root is stated as
+// the recorded pair states it — verified by the nonce binding, evidence in the
+// customer-held ID token — and the offline verifier says on every run that it
+// does not check the identity root. Its token is still carried, reachable from
+// the orchestrator's par_hash, so the structural root checks do run.
+func mintDemoChain(spec Spec) (*receipt.Authority, map[string]string, error) {
+	root, hop1, hop2 := testkeys.ActorRoot(), testkeys.ActorHop1(), testkeys.ActorHop2()
 
 	// The human authenticated two seconds before the run started; the ID
 	// token blob stays in customer custody and is referenced by digest
 	// (Q22, Q40).
 	authTime := spec.Start.Add(-2 * time.Second).Unix()
 	idTokenRef := sha256Hex([]byte("behalf.sh/demo/id-token/" + spec.RunID))
-	par := func(depth int) string {
-		return sha256Hex([]byte(fmt.Sprintf("behalf.sh/demo/aat/%s/par/%d", spec.RunID, depth)))
-	}
-	jti := func(depth int) string {
-		return fmt.Sprintf("aat-%s-hop%d", spec.RunID, depth)
-	}
+	jti := func(depth int) string { return fmt.Sprintf("aat-%s-hop%d", spec.RunID, depth) }
+	limit := map[string]any{"amount": "100.00", "currency": "USD"}
+	privileges := []any{map[string]any{"operation": "refund.issue", "limit": limit}}
 
-	// The leaf hop is where the runs diverge: signed in run_9f2a,
-	// caller-asserted (no signature) in run_c71e.
-	leafVerification := receipt.Verification{
-		Status:      "verified",
-		Method:      "aat-jws-ed25519",
-		EvidenceRef: "jkt:" + hop2.JKT,
-	}
-	leafCredential := receipt.Credential{
-		Issuer: "https://desk.demo.internal",
-		Kind:   "aat-jws",
-		ID:     "aat-jws:" + jti(2),
-		Exp:    chainExp,
-		JKT:    hop2.JKT,
-	}
-	leafCarriage := "in-band"
-	if spec.Variant == VariantB {
-		leafVerification = receipt.Verification{Status: "asserted", Method: "caller-asserted"}
-		// No jkt: nothing proves this key signed anything on this hop.
-		leafCredential = receipt.Credential{
-			Issuer: "https://desk.demo.internal",
-			Kind:   "caller-asserted",
-			ID:     "caller-asserted:" + jti(2),
-			Exp:    chainExp,
-		}
-		leafCarriage = "out-of-band"
-	}
-
-	return &receipt.Authority{
-		Chain: []receipt.Hop{
-			{
-				DelDepth:    0,
-				DelMaxDepth: 3,
-				ParHash:     par(0),
-				Cnf:         receipt.Cnf{JWK: jwkMap(root)},
-				AuthorizationDetails: []map[string]any{{
-					"type":      "sh.behalf/support-desk",
-					"intent":    "resolve ticket 4417",
-					"actions":   []any{"tickets.*", "orders.read", "refund.issue"},
-					"locations": []any{"https://desk.demo.internal"},
-					"privileges": []any{map[string]any{
-						"operation": "refund.issue",
-						"limit":     map[string]any{"amount": "100.00", "currency": "USD"},
-					}},
-				}},
-				Exp: chainExp,
-				JTI: jti(0),
-				Credential: receipt.Credential{
-					Issuer:   "https://accounts.google.com",
-					Kind:     "oidc-id-token",
-					ID:       "oidc-sub-digest:" + demoSubDigest,
-					Exp:      chainExp,
-					JKT:      root.JKT,
-					AuthTime: authTime,
-					AMR:      []string{"pwd", "mfa"},
-				},
-				RootPrincipalBinding: &receipt.RootBinding{
-					Nonce:      root.JKT, // nonce == jkt(device_pubkey) (D5)
-					DeviceJKT:  root.JKT,
-					IDTokenRef: idTokenRef,
-				},
-				Verification: receipt.Verification{
-					Status:      "verified",
-					Method:      "oidc-nonce-binding",
-					EvidenceRef: "sha256:" + idTokenRef,
-				},
-				CarriageRoute:   "in-band",
-				AttenuationFlag: "unchanged",
-			},
-			{
-				DelDepth:    1,
-				DelMaxDepth: 3,
-				ParHash:     par(1),
-				Cnf:         receipt.Cnf{JWK: jwkMap(hop1)},
-				AuthorizationDetails: []map[string]any{{
-					"type":      "sh.behalf/support-desk",
-					"actions":   []any{"orders.read", "refund.issue"},
-					"locations": []any{"https://desk.demo.internal"},
-					"privileges": []any{map[string]any{
-						"operation": "refund.issue",
-						"limit":     map[string]any{"amount": "100.00", "currency": "USD"},
-					}},
-				}},
-				Exp: chainExp,
-				JTI: jti(1),
-				Credential: receipt.Credential{
-					Issuer: "https://desk.demo.internal",
-					Kind:   "aat-jws",
-					ID:     "aat-jws:" + jti(1),
-					Exp:    chainExp,
-					JKT:    hop1.JKT,
-				},
-				Verification: receipt.Verification{
-					Status:      "verified",
-					Method:      "aat-jws-ed25519",
-					EvidenceRef: "jkt:" + hop1.JKT,
-				},
-				CarriageRoute:   "in-band",
-				AttenuationFlag: "attenuated",
-			},
-			{
-				DelDepth:    2,
-				DelMaxDepth: 3,
-				ParHash:     par(2),
-				Cnf:         receipt.Cnf{JWK: jwkMap(hop2)},
-				AuthorizationDetails: []map[string]any{{
-					"type":      "sh.behalf/support-desk",
-					"actions":   []any{"refund.issue"},
-					"locations": []any{"https://desk.demo.internal"},
-					"privileges": []any{map[string]any{
-						"operation": "refund.issue",
-						"limit":     map[string]any{"amount": "100.00", "currency": "USD"},
-					}},
-				}},
-				Exp:             chainExp,
-				JTI:             jti(2),
-				Credential:      leafCredential,
-				Verification:    leafVerification,
-				CarriageRoute:   leafCarriage,
-				AttenuationFlag: "attenuated",
-			},
+	h0, err := aat.Mint(root.Private, nil, aat.MintParams{
+		Subject:  root.Public,
+		MaxDepth: 3,
+		AuthorizationDetails: []map[string]any{{
+			"type":       "sh.behalf/support-desk",
+			"intent":     "resolve ticket 4417",
+			"actions":    []any{"tickets.*", "orders.read", "refund.issue"},
+			"locations":  []any{"https://desk.demo.internal"},
+			"privileges": privileges,
+		}},
+		Exp: chainExp,
+		JTI: jti(0),
+		Credential: receipt.Credential{
+			Issuer:   "https://accounts.google.com",
+			Kind:     "oidc-id-token",
+			ID:       "oidc-sub-digest:" + demoSubDigest,
+			Exp:      chainExp,
+			JKT:      root.JKT,
+			AuthTime: authTime,
+			AMR:      []string{"pwd", "mfa"},
 		},
+		RootPrincipalBinding: &receipt.RootBinding{
+			Nonce:      root.JKT, // nonce == jkt(device_pubkey) (D5)
+			DeviceJKT:  root.JKT,
+			IDTokenRef: idTokenRef,
+		},
+	})
+	if err != nil {
+		return nil, nil, fmt.Errorf("mint root hop: %w", err)
 	}
+	h1, err := aat.Mint(root.Private, &h0, aat.MintParams{
+		Subject: hop1.Public,
+		AuthorizationDetails: []map[string]any{{
+			"type":       "sh.behalf/support-desk",
+			"actions":    []any{"orders.read", "refund.issue"},
+			"locations":  []any{"https://desk.demo.internal"},
+			"privileges": privileges,
+		}},
+		Exp: chainExp,
+		JTI: jti(1),
+		Credential: receipt.Credential{
+			Issuer: "https://desk.demo.internal", Kind: "aat-jws", ID: "aat-jws:" + jti(1), Exp: chainExp, JKT: hop1.JKT,
+		},
+	})
+	if err != nil {
+		return nil, nil, fmt.Errorf("mint orchestrator hop: %w", err)
+	}
+	h2, err := aat.Mint(hop1.Private, &h1, aat.MintParams{
+		Subject: hop2.Public,
+		AuthorizationDetails: []map[string]any{{
+			"type":       "sh.behalf/support-desk",
+			"actions":    []any{"refund.issue"},
+			"locations":  []any{"https://desk.demo.internal"},
+			"privileges": privileges,
+		}},
+		Exp: chainExp,
+		JTI: jti(2),
+		Credential: receipt.Credential{
+			Issuer: "https://desk.demo.internal", Kind: "aat-jws", ID: "aat-jws:" + jti(2), Exp: chainExp, JKT: hop2.JKT,
+		},
+	})
+	if err != nil {
+		return nil, nil, fmt.Errorf("mint sub-agent hop: %w", err)
+	}
+
+	// The receipt's copy of each hop is the signed claim set, verbatim, plus
+	// the capture-time verdict. The verdicts are what the recorded pair
+	// carries for the same chain: root verified by the nonce binding (its
+	// evidence is the ID token, not the hop token), orchestrator verified by
+	// its signature, leaf verified or caller-asserted by variant.
+	hopA := func(h aat.Hop, res aat.HopResult, route, flag string) receipt.Hop {
+		r := h.ReceiptHop(res)
+		r.CarriageRoute = route
+		r.AttenuationFlag = flag
+		return r
+	}
+	rootRes := aat.HopResult{Status: "verified", Method: "oidc-nonce-binding", EvidenceRef: "sha256:" + idTokenRef}
+	hop1Res := aat.HopResult{Status: "verified", Method: aat.MethodHopJWS, EvidenceRef: exportv1.TokenRef(h1.JWS)}
+
+	tokens := map[string]string{
+		exportv1.TokenRef(h0.JWS): h0.JWS,
+		exportv1.TokenRef(h1.JWS): h1.JWS,
+	}
+	chain := []receipt.Hop{
+		hopA(h0, rootRes, "in-band", "unchanged"),
+		hopA(h1, hop1Res, "in-band", "attenuated"),
+	}
+	if spec.Variant == VariantB {
+		// The leaf arrives caller-asserted: the same claim set, no token. No
+		// jkt on the credential, because nothing proves this key signed
+		// anything on this hop; no evidence_ref, because there is nothing to
+		// fetch; and no token in the export, because there is none.
+		leaf := hopA(h2.Unsigned(), aat.HopResult{Status: "asserted", Method: "caller-asserted"}, "out-of-band", "attenuated")
+		leaf.Credential = receipt.Credential{
+			Issuer: "https://desk.demo.internal", Kind: "caller-asserted", ID: "caller-asserted:" + jti(2), Exp: chainExp,
+		}
+		chain = append(chain, leaf)
+	} else {
+		leafRes := aat.HopResult{Status: "verified", Method: aat.MethodHopJWS, EvidenceRef: exportv1.TokenRef(h2.JWS)}
+		chain = append(chain, hopA(h2, leafRes, "in-band", "attenuated"))
+		tokens[exportv1.TokenRef(h2.JWS)] = h2.JWS
+	}
+	return &receipt.Authority{Chain: chain}, tokens, nil
 }
 
 // weakestHop is the receipt-level verification rollup: the weakest hop in

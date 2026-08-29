@@ -81,6 +81,8 @@ func cmdImport(args []string) error {
 	origin := fs.String("origin", "", "log origin for a directory that does not exist yet (default: the first export's own origin)")
 	force := fs.Bool("force", false, "import without running behalf-verify over the files first")
 	quiet := fs.Bool("quiet", false, "suppress the log service's own operational logging")
+	state := fs.String("state", "", "behalf state directory holding the CAS (default: $BEHALF_HOME or ~/.behalf)")
+	casDir := fs.String("cas", "", "hop token store directory (default: <state>/blobs)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -154,6 +156,26 @@ func cmdImport(args []string) error {
 		idx  int
 	}
 	pendings := make([]pendingLeaf, 0, 128)
+	// The delegation hop tokens travel in the export header too, and they
+	// have to land in the customer-held store for the same reason the keys
+	// land in the index: a later `behalf-log export` of this log looks them
+	// up there, by the digest each receipt's evidence_ref names. Without this
+	// the round trip import → export silently dropped them, and the offline
+	// verifier told the first user of the npm demo "0 delegation hop(s)
+	// checked" about a file whose source carried every token (ENG-42). The
+	// store is content-addressed and Put is idempotent, so re-importing
+	// costs nothing and a token that does not hash to its key is refused by
+	// the reader before it gets here.
+	if blobs, err := openStore(*state, *casDir); err == nil {
+		for i, ex := range exports {
+			for _, jws := range ex.Tokens {
+				if _, err := blobs.Put([]byte(jws)); err != nil {
+					return fmt.Errorf("import: %s: retain hop token: %w", files[i], err)
+				}
+			}
+		}
+	}
+
 	for i, ex := range exports {
 		// The emitter keys travel in the export header, which is what lets a
 		// later `behalf-log export` of this log carry them forward and verify

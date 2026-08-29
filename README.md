@@ -33,10 +33,14 @@ no API key, no account, no tokens spent — and nothing is written until you typ
 Then:
 
 ```sh
-behalf runs                        # two runs of one agent. both ok.
-behalf diff run_9f2a run_c71e      # which step made them differ
-behalf why run_c71e:31             # and on whose behalf it was done
+npx onbehalf runs                        # two runs of one agent. both ok.
+npx onbehalf diff run_9f2a run_c71e      # which step made them differ
+npx onbehalf why run_c71e:31             # and on whose behalf it was done
 ```
+
+`npx` runs from npm's cache and puts nothing on `PATH`, so the commands are written the way
+they work. `npm install -g onbehalf` puts `behalf`, `behalf-log` and `behalf-verify` on `PATH`
+if you would rather type the short form.
 
 **Before you run any of that — a challenge.** Both exports are in the package
 (`node_modules/onbehalf/demo/`). Open them in whatever you use today. Forty-seven steps

@@ -80,6 +80,15 @@ func (s *Store) Put(b []byte) (string, error) {
 	if _, err := os.Stat(path); err == nil {
 		return d, nil
 	}
+	// The store creates its own directory. Every earlier caller happened to
+	// run after `behalf login`, which creates <state>/blobs — until
+	// `behalf-log import` on a fresh state directory tried to retain the hop
+	// tokens from an export header and failed on the first blob. A
+	// content-addressed store that cannot be written to before something
+	// else has made its directory is a trap for every future caller too.
+	if err := os.MkdirAll(s.dir, 0o700); err != nil {
+		return "", fmt.Errorf("cas: create store: %w", err)
+	}
 	tmp, err := os.CreateTemp(s.dir, ".blob-*")
 	if err != nil {
 		return "", fmt.Errorf("cas: write blob: %w", err)

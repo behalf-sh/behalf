@@ -9,7 +9,9 @@
   "keywords": ["agent", "audit", "receipts", "delegation", "provenance", "mcp"],
   "bin": {
     "onbehalf": "bin/onbehalf.js",
-    "behalf": "bin/behalf.js"
+    "behalf": "bin/behalf.js",
+    "behalf-log": "bin/behalf-log.js",
+    "behalf-verify": "bin/behalf-verify.js"
   },
   "files": ["bin/", "demo/", "README.md", "LICENSE", "NOTICE"],
   "engines": { "node": ">=18" },
