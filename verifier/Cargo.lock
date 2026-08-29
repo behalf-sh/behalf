@@ -33,14 +33,14 @@ checksum = "2af50177e190e07a26ab74f8b1efbfe2ef87da2116221318cb1c2e82baf7de06"
 
 [[package]]
 name = "behalf-verify"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "base64",
  "ed25519-dalek",
  "serde",
  "serde_json",
- "sha2 0.10.9",
- "tlog_core",
+ "sha2 0.11.0",
+ "thiserror",
  "wasm-bindgen",
  "wasm-bindgen-test",
 ]
@@ -579,16 +579,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 3.0.4",
-]
-
-[[package]]
-name = "tlog_core"
-version = "0.2.0"
-dependencies = [
- "base64",
- "serde",
- "sha2 0.11.0",
- "thiserror",
 ]
 
 [[package]]

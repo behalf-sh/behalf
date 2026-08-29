@@ -1,10 +1,17 @@
 [package]
 name = "behalf-verify"
-version = "0.1.0"
+version = "0.1.2"
 edition = "2021"
-description = "Offline verifier for behalf.sh/export/v1 audit exports (Week-1 hand-rolled chain)"
-license = "UNLICENSED"
-publish = false
+description = "Offline verifier for behalf action-receipt exports: record integrity and delegation-chain checks, no network, no account"
+license = "Apache-2.0 AND BSD-3-Clause"
+repository = "https://github.com/behalf-sh/behalf"
+homepage = "https://behalf.sh"
+readme = "README.md"
+keywords = ["audit", "receipts", "verification", "agents", "transparency-log"]
+categories = ["command-line-utilities", "cryptography", "authentication"]
+# The browser build's inputs and outputs are not part of the crate; the
+# published crate is the CLI and the library it is built from.
+exclude = ["web/", "target/"]
 
 [lib]
 name = "behalf_verify"
@@ -24,14 +31,16 @@ base64 = "0.22"
 ed25519-dalek = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-sha2 = "0.10"
+sha2 = "0.11"
+# Used only by the vendored tlog_core module (native builds); see below.
+thiserror = "2"
 
-# Native-only: the RFC 6962 Merkle math is used exclusively by log-directory
-# mode (`verify log <dir>`), which needs a filesystem and is therefore not
-# part of the wasm surface. Vendored from cloudflare/azul at a pinned SHA
-# (architecture D6/Q94); see vendor/azul/VENDOR.md.
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-tlog_core = { path = "vendor/azul/tlog_core" }
+# The RFC 6962 Merkle math is vendored from cloudflare/azul at a pinned SHA
+# (see vendor/azul/VENDOR.md) and compiled into this crate as a module —
+# `src/vendored_tlog_core.rs` is a `#[path]` include of the verbatim upstream
+# source. It used to be a path dependency, which crates.io does not accept;
+# azul itself is unpublished on crates.io (cloudflare/azul#16). Native-only:
+# log-directory mode needs a filesystem and is not part of the wasm surface.
 
 # Wasm-only: the browser shim. Nothing here is resolved for native builds, so
 # `cargo build`/`test`/`clippy` on the CLI never see wasm-bindgen at all.

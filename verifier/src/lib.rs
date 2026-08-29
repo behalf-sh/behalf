@@ -30,6 +30,15 @@
 //! [`merkle`]) are simply absent from the wasm build, and the page says so.
 
 pub mod aat;
+/// The vendored RFC 6962 Merkle math from cloudflare/azul, compiled in as a
+/// module rather than pulled as a dependency (crates.io accepts no path
+/// dependencies, and azul is unpublished there). Verbatim upstream source
+/// under a BSD-3-Clause licence; see `vendor/azul/VENDOR.md` and `NOTICE`.
+#[cfg(not(target_arch = "wasm32"))]
+#[path = "../vendor/azul/tlog_core/src/lib.rs"]
+#[allow(clippy::all, dead_code, unused_imports)]
+pub mod tlog_core;
+
 pub mod chain;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod envelope;

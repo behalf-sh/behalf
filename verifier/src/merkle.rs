@@ -7,7 +7,7 @@
 //! — which is exactly what checkpoint comparison (current size) and the
 //! `--latest-known` consistency check (an earlier size) both need.
 
-use tlog_core::{
+use crate::tlog_core::{
     record_hash, stored_hash_index, stored_hashes_for_record_hash, tree_hash, Hash, HashReader,
     TlogError,
 };
