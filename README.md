@@ -461,8 +461,10 @@ of the licence and a header in every file, so the answer is visible from whateve
 
 | Registry | Name | Status |
 |---|---|---|
+| crates.io | [`behalf-verify`](https://crates.io/crates/behalf-verify) | the offline verifier: `cargo install behalf-verify` |
 | crates.io | [`behalf`](https://crates.io/crates/behalf) | reserved, v0.0.0 |
 | crates.io | [`onbehalf`](https://crates.io/crates/onbehalf) | reserved, v0.0.0 |
+| Go | [`github.com/behalf-sh/behalf`](https://pkg.go.dev/github.com/behalf-sh/behalf) | the module itself: `go install github.com/behalf-sh/behalf/cmd/behalf@latest` (and `cmd/behalf-log`, `cmd/behalf-proxy`, `cmd/behalf-hook`) |
 | npm | [`onbehalf`](https://www.npmjs.com/package/onbehalf) | reserved, v0.0.0 |
 | npm org | [`@onbehalf`](https://www.npmjs.com/org/onbehalf) | claimed |
 | PyPI | [`onbehalf`](https://pypi.org/project/onbehalf/) | reserved, v0.0.0 |

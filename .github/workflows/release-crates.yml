@@ -1,0 +1,83 @@
+# Publishing behalf-verify to crates.io.
+#
+# Same shape and same reasons as release-npm.yml: trusted publishing over
+# OIDC, no long-lived CARGO_REGISTRY_TOKEN anywhere in this repository or its
+# secrets. rust-lang/crates-io-auth-action exchanges the job's GitHub OIDC
+# token for a crates.io token that lives for the job and is revoked in the
+# action's post step.
+#
+# Setup this workflow assumes, and cannot check: a trusted publisher
+# configured on crates.io for the `behalf-verify` crate, naming this
+# repository and this workflow file. crates.io, like npm, only allows that on
+# a crate that already exists, so the first version was published from a
+# developer machine and every version after it comes from here.
+#
+# Runs on the same tag push as the npm release. The two are independent jobs
+# in independent workflows on purpose: a crates.io hiccup must not hold the
+# npm packages hostage, and vice versa.
+
+name: release-crates
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: "Publish to crates.io. Off means package and verify only."
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: verifier
+      # The crate's version must be the tag's. A tag that publishes a crate
+      # whose Cargo.toml says something else is a release nobody can map back
+      # to source.
+      - name: The crate version must match the tag
+        if: github.event_name == 'push'
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME#v}"
+          crate="$(cd verifier && cargo metadata --no-deps --format-version 1 | python3 -c 'import json,sys; print(json.load(sys.stdin)["packages"][0]["version"])')"
+          if [ "$tag" != "$crate" ]; then
+            echo "tag v$tag but verifier/Cargo.toml says $crate" >&2
+            exit 1
+          fi
+      - name: Package and verify the crate builds from its own tarball
+        run: cd verifier && cargo publish --dry-run --locked
+      - name: What would ship
+        run: cd verifier && cargo package --list --locked
+
+  publish:
+    needs: package
+    if: github.event_name == 'push' || inputs.publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # the whole of the publishing credential
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: verifier
+      - name: Authenticate with crates.io over OIDC
+        id: auth
+        uses: rust-lang/crates-io-auth-action@v1
+      - name: Publish
+        run: cd verifier && cargo publish --locked
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+      - name: What was published
+        run: echo "https://crates.io/crates/behalf-verify/${GITHUB_REF_NAME#v}"
