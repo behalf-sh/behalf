@@ -14,11 +14,11 @@ caller supplied.
 behalf needs you to run your agent twice — and agents are nondeterministic, so the second
 run *will* differ.
 
-> **Status: in development, not yet published.** The pipeline runs end to end — capture,
-> log, verification, and the headline commands — and the `npx` packages are built and
-> tested. What has not happened is the publish: there is nothing on a registry yet, so the
-> quickstart below describes a command you cannot run until it is. See
-> [What works today](#what-works-today) for the line-by-line.
+> **Status: 0.1.2 is published.** `onbehalf@0.1.2` on npm — the CLI, the local log service
+> and the offline verifier, one package per platform — `behalf-verify` 0.1.2 on crates.io,
+> and `github.com/behalf-sh/behalf@v0.1.2` as a Go module. The quickstart below runs as
+> written. What is built, what is not, and what the verifier does and does not check is in
+> [What works today](#what-works-today), line by line.
 
 ---
 
@@ -42,8 +42,13 @@ npx onbehalf why run_c71e:31             # and on whose behalf it was done
 they work. `npm install -g onbehalf` puts `behalf`, `behalf-log` and `behalf-verify` on `PATH`
 if you would rather type the short form.
 
-**Before you run any of that — a challenge.** Both exports are in the package
-(`node_modules/onbehalf/demo/`). Open them in whatever you use today. Forty-seven steps
+Without npm: `cargo install behalf-verify` builds the offline verifier on its own, and
+`go install github.com/behalf-sh/behalf/cmd/behalf@latest` builds the CLI (likewise
+`cmd/behalf-log`, `cmd/behalf-proxy` and `cmd/behalf-hook`).
+
+**Before you run any of that — a challenge.** Both exports ship in the package
+(`demo/run_9f2a.jsonl` and `demo/run_c71e.jsonl` in the tarball) and are published at
+[behalf.sh/demo/](https://behalf.sh/demo/). Open them in whatever you use today. Forty-seven steps
 each, twenty-two of them different, both runs `ok` from end to end. Find the one that
 caused the other twenty-one, and find out whether the human at the root of the chain ever
 authorised a refund of that size.
@@ -182,11 +187,10 @@ Built and covered by tests on every commit:
 | WASM browser verifier — the same crate, file mode, nothing uploaded | working (`make wasm`) |
 | `behalf export --html` — one self-contained file per run or run pair, no external requests | working (`cmd/behalf`, `internal/htmlexport`) |
 | Claude Code hooks companion — consent, sub-agent delegation, local tool calls, failures | working (`cmd/behalf-hook`), payloads pinned to client 2.1.250 |
-| Witness — cosigning, split-view and stale-restore refusal, fail-open | working (`cmd/behalf-witness`) |
 | Offline verification of the delegation chain — the property that makes this not a log | working for I1, I2, I3, I5 (`verifier/src/aat.rs`); I4 and the identity root are not checked offline, and the verifier says so on every run |
 | Tamper-detection suite in CI — 30 adversarial cases across exports, log storage, payloads and the witness | working (`make tamper-suite`) |
 | Published key log — so an export's keys can be attributed to a real emitter | not built |
-| `npx onbehalf demo` — unpacks two recorded runs, no network, no key, nothing spent | built, not yet published (`packaging/npm`). macOS and Linux, x64 and arm64. **Not Windows**: the log's storage driver is POSIX-only; WSL works |
+| `npx onbehalf demo` — unpacks two recorded runs, no network, no key, nothing spent | published: `onbehalf@0.1.2` on npm, built from `packaging/npm`. macOS and Linux, x64 and arm64. **Not Windows**: the log's storage driver is POSIX-only; WSL works. 0.1.0 is deprecated on the registry — its binaries shipped without the execute bit |
 | `behalf-log import` — rebuild a log from export files, every leaf byte-for-byte | working (`cmd/behalf-log`) |
 | Importers for existing trace data | not started |
 
@@ -427,12 +431,15 @@ internal/oidclogin  the OIDC nonce-thumbprint identity root
 verifier/           the offline Rust verifier (file mode and tile-directory mode)
 verifier/web/       the browser build of that same crate: one self-contained page
 packaging/npm/      the `npx onbehalf demo` packages: one root, six per-platform
-docs/               architecture, frozen receipt schema, export format, measurements
+docs/               frozen receipt schema, export format, the delegation-token profile,
+                    witness operations, measurements
 ```
 
-Start with [`docs/architecture.md`](docs/architecture.md) for the decisions and their
-reasoning, and [`docs/receipt-schema-v1.md`](docs/receipt-schema-v1.md) for what a receipt
-actually contains and why each field had to be frozen before the first record was written.
+Start with [`docs/receipt-schema-v1.md`](docs/receipt-schema-v1.md) for what a receipt
+actually contains and why each field had to be frozen before the first record was written,
+[`docs/export-format-v1.md`](docs/export-format-v1.md) for the file the verifier checks, and
+the [threat model](https://behalf.sh/docs/threat-model/) for what verification proves and
+against whom.
 
 ## Licence
 
@@ -465,8 +472,8 @@ of the licence and a header in every file, so the answer is visible from whateve
 | crates.io | [`behalf`](https://crates.io/crates/behalf) | reserved, v0.0.0 |
 | crates.io | [`onbehalf`](https://crates.io/crates/onbehalf) | reserved, v0.0.0 |
 | Go | [`github.com/behalf-sh/behalf`](https://pkg.go.dev/github.com/behalf-sh/behalf) | the module itself: `go install github.com/behalf-sh/behalf/cmd/behalf@latest` (and `cmd/behalf-log`, `cmd/behalf-proxy`, `cmd/behalf-hook`) |
-| npm | [`onbehalf`](https://www.npmjs.com/package/onbehalf) | reserved, v0.0.0 |
-| npm org | [`@onbehalf`](https://www.npmjs.com/org/onbehalf) | claimed |
+| npm | [`onbehalf`](https://www.npmjs.com/package/onbehalf) | published: `npx onbehalf demo`, or `npm install -g onbehalf` for `behalf`, `behalf-log` and `behalf-verify` |
+| npm org | [`@onbehalf`](https://www.npmjs.com/org/onbehalf) | the per-platform binary packages: `@onbehalf/cli-{darwin,linux}-{arm64,x64}` |
 | PyPI | [`onbehalf`](https://pypi.org/project/onbehalf/) | reserved, v0.0.0 |
 | GitHub | `behalf-sh` | this org |
 
@@ -474,7 +481,7 @@ Not available: npm `behalf` (unrelated cookie/request library, dormant since 202
 scope `@behalf` (dormant user, inactive 8 years), PyPI `behalf` (taken 2026-07-22), GitHub
 users `behalf` (2019) and `onbehalf` (2013, dormant).
 
-The first release adds one package per platform under the claimed `@onbehalf` org —
+The release ships one package per platform under the `@onbehalf` org —
 `@onbehalf/cli-darwin-arm64` and its siblings — pulled in by `onbehalf` as
 `optionalDependencies` and selected by npm's own `os`/`cpu` fields, so `npx onbehalf demo`
 downloads one platform's binaries and runs no install script. Four platforms: macOS and
@@ -484,8 +491,10 @@ neither `behalf` nor `behalf-log` does, and the demo needs both. The Rust verifi
 cross-compiles fine. The `@onbehalf/cli-win32-*` names are reserved and deprecated with that
 sentence; WSL runs everything.
 
-That is built and assembles from `packaging/npm/build.sh`; what is left is the publish
-itself. Two things it turns on are worth knowing:
+It assembles from `packaging/npm/build.sh` and publishes over npm trusted publishing
+(OIDC) — no long-lived token exists anywhere — with a SLSA provenance attestation on the
+root package and on each per-platform package; the registry shows it under *Provenance* on
+every package page. Two things the design turns on are worth knowing:
 
 - **No `postinstall`, and no fat package.** An install-time download from somewhere else is
   the unauditable step this product exists to eliminate, and it is blocked outright in many
